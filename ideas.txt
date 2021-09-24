@@ -1,0 +1,52 @@
+变长用卷积
+1. external sign-language LM? We have, PHOENIX-2014. See Niu Zhe's ECCV 20. Now use it after beam search, can make wer 0.4-0.5 lower
+2. Transformer? Sign Language Transformers--CVPR 2020
+3. online/streamable, Monotonic SLR? FCN--ECCV 2020, 
+4. Can tricks on ASR be used on SLR? e.g., mWER loss, focal loss, weighted WER? mWER+RL was used in ICIP paper.
+5. SE block for long-term/global information? Try to use this in FCN, Two kinds of SE, global pooling along time axis or feature axis. 
+Actually, both of the two kinds of SE block can be combined maybe before the input of transformer (serve as embedding, like speech-transformer)
+6. gated conv/attention? focus on mouth and hand. See the paper in Interspeech 2020 (Temporal Deformable Convolution)
+7. multi-lingual
+8. Can transformer be used for visual feature extraction?
+9. from paper 14, how to add temporal fusion? Transformer has the sequence modeling ability.
+10. Use TCN to model temporal semantics, dilated conv/dense for long term
+11. Data imbalance--long tail. Maybe try focal loss
+12. GAN. SLP, DualLip, NMT -- NAACL paper, It seems that GAN doesn't work better for NLP, except combined with RL.
+13. mask conv. in gan for tts.  work.
+14. slow-fast. It shows that slow-only is better than fast-only.
+16. hiearchical SE (diffrent window size), like Attention-FA module in COOT for temporal attention, also to get sentence-level feature
+17. more complete dual learning (SLP), other way of temporal modeling (BLSTM, etc.), sentence-level feature can also use se (now is GAP)
+Niu Zhe: whether model focus on useful information? many repeats in training set but only a few in test set. Better representations
+18. VideoMix. Intra-video: temporal videomix within a local window. The loss doesn't change. BAD 
+Or inter-video: swap a window of video2 and video1, then loss should be average. BAD 
+19. Aligner in E2E A TTS, length loss, soft DTW. Maybe can give up ctc using length predictor.
+      Aligner is used for text-to-speech, i.e., short to long. I haven't found a way to predict length from long to short. Maybe we can only use rnn...
+      Two path, CTC + aligner path, to predict the ratio of each frame to the gloss. And the end of 'gloss' is the sum of '1'
+20. In SE we use sigmoid. In attention we use softmax. Dilated conv in SE_conv? 
+21. use lm during beam search. Now it is after beam search.
+22. Consistency between frame-level, 1st-level, 2nd-level representations. 
+     In first several epochs, we 'pretrain' the model to learn the 'consistency', i.e., self-supervised, 
+     then we use gt gloss to train the model, i.e, supervised. Also momentum-average. Fix gloss embedding GRU and update frame-level GRU?
+23. CNN+transformer. Not better than TCN
+24. Fully end-to-end. use RNN to decode. (exposure bias from Niu Zhe, maybe schedule sampling?)
+25. track hands? object tracking
+26. deformable conv, 2d, 1d
+28. transformer(SUB<DEL), TCN(SUB>DEL), maybe GFE in FCN works for transformer?  because transformer use random_drop only.
+29. another ctc loss/decode from 1st level
+30. dual_v2, use soft_DTW as consistency loss fun instead of cosine
+32. TCN+TF, temp_scale. Not better than TCN
+33. GLU (work), comparison between glu and se_mix, swish. To show GLU really works, we don't use the half to gate the other half, just relu.
+      Try residual (sigmoid may suffer from gradient vanishing)
+34. store frame-level features
+35. CSAN, restrict self-attention with a local area
+36. se before max pooling
+37. Try to see if fix dropping works, BAD. stride transformer?
+38. Relative postional encoding (Niu Zhe's scripts, Transformer-XL, Conformer), 
+     Gaussian Kernel (aligner in E2E Adversarial TTS, should still use absolute pe after embedding? (yes) Clamp? Combine with learnable rpe? (best)),
+     seperate heads, local heads and global heads.
+     gate to fusion.
+     swish in FFN.
+39. temporal attention (key frame)
+40. use conv instead of max pooling to downsample
+41. length penalty when decoding
+42. full transformer, transformer for visual module
