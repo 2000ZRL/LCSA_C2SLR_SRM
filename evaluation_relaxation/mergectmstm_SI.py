@@ -20,13 +20,13 @@ for idx,line in enumerate(ctm):
 for idx,line in enumerate(stm):
     l=line.strip().split()
     stmDict.append(l)
-      
+    
     if len(ctmDict) > idx+addedlines and ctmDict[idx+addedlines][0]==l[0]: #ctm and stm match:
-	    if len(ctmDict)>idx+addedlines+1:
-	        while (len(ctmDict)>idx+addedlines+1) and (ctmDict[idx+addedlines+1][0]==l[0]):
-	            addedlines+=1
+        if len(ctmDict)>idx+addedlines+1:
+            while (len(ctmDict)>idx+addedlines+1) and (ctmDict[idx+addedlines+1][0]==l[0]):
+                addedlines+=1
     else:
-	    ctmDict.insert(idx+addedlines,[l[0],"1 0.000 0.030 [EMPTY]"])
+        ctmDict.insert(idx+addedlines,[l[0],"1 0.000 0.030 [EMPTY]"])
 
 stm.close()
 ctm.close()

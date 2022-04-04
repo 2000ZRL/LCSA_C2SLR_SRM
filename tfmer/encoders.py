@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from utils.utils import freeze_params
+from utils.utils import freeze_params, create_mask
 from .transformer_layers import TransformerEncoderLayer, PositionalEncoding
 
 
@@ -97,7 +97,7 @@ class RecurrentEncoder(Encoder):
 
     # pylint: disable=arguments-differ
     def forward(
-        self, embed_src: Tensor, src_length: Tensor, need_hidden_only=False
+        self, embed_src: Tensor, src_length: Tensor, mask=None, need_hidden_only=False
     ):
         """
         Applies a bidirectional RNN to sequence of embeddings x.
@@ -181,6 +181,7 @@ class TransformerEncoder(Encoder):
         comb_conv=None,
         qkv_context=[0,0,0],
         qkv_fuse_type=None,
+        need_cls_token=None,
         freeze: bool = False,
         **kwargs
     ):
@@ -211,8 +212,9 @@ class TransformerEncoder(Encoder):
                     mod_D=mod_D,
                     mod_src=mod_src,
                     comb_conv=comb_conv,
-                    qkv_context = qkv_context,
-                    qkv_fuse_type = qkv_fuse_type
+                    qkv_context=qkv_context,
+                    qkv_fuse_type=qkv_fuse_type,
+                    need_cls_token=need_cls_token
                 )
                 for _ in range(args_tf['num_layers'])
             ]
@@ -226,15 +228,22 @@ class TransformerEncoder(Encoder):
         else:
             self.pe = PositionalEncoding(args_tf['tf_model_size'])
         self.emb_dropout = nn.Dropout(p=args_tf['emb_dropout'])
-
         self._output_size = args_tf['tf_model_size']
+
+        self.need_cls_token = need_cls_token
+        if need_cls_token == 'sen':
+            self.cls_token = nn.Parameter(torch.randn(1, 1, args_tf['tf_model_size']))
+        
+        init = None
+        if init == 'xavier':
+            self._init_param()
 
         if freeze:
             freeze_params(self)
 
     # pylint: disable=arguments-differ
     def forward(
-        self, embed_src: Tensor, src_length: Tensor, mask: Tensor, need_att=False
+        self, embed_src: Tensor, src_length: Tensor, need_att=False
     ):
         """
         Pass the input (and mask) through each layer in turn.
@@ -254,6 +263,14 @@ class TransformerEncoder(Encoder):
             - hidden_concat: last hidden state with
                 shape (batch_size, directions*hidden)
         """
+        mask = create_mask(src_length)
+        if self.need_cls_token == 'sen':
+            batch_size = src_length.shape[0]
+            cls_token = self.cls_token.repeat(batch_size, 1, 1)  #[B,1,C]
+            embed_src = torch.cat([cls_token, embed_src], dim=1)  #[B,T+1,C]
+            extra_mask = torch.zeros(batch_size, 1, 1).bool().cuda()
+            mask = torch.cat([extra_mask, mask], dim=-1)  #[B,1,T+1]
+
         x = self.pe(embed_src)
         
         #x = self.pe(embed_src)  # add position encoding to word embeddings
@@ -261,12 +278,18 @@ class TransformerEncoder(Encoder):
         
         # x = self.se_block_1(x)
         # x = self.se_block_2(x)
-        
+
         plot_lst = []
         for layer in self.layers:
             x, plot = layer(x, mask, need_att)
             plot_lst.append(plot)
-        return self.layer_norm(x), plot_lst
+        
+        if self.need_cls_token == 'sen':
+            return None, self.layer_norm(x)[:, 0, :]
+        elif self.need_cls_token == 'frame':
+            return None, self.layer_norm(x)
+        else:
+            return self.layer_norm(x), plot_lst
 
     def __repr__(self):
         return "%s(num_layers=%r, num_heads=%r)" % (
@@ -274,3 +297,8 @@ class TransformerEncoder(Encoder):
             len(self.layers),
             self.layers[0].src_src_att.num_heads,
         )
+    
+    def _init_param(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)

@@ -31,8 +31,6 @@ class TrainingManagerSemi(TrainingManager):
         super(TrainingManagerSemi, self).__init__(args, vocab)
         if args.va: 
             self.dc_crit = SeqKD(T=8, blank_id=self.blank_id).cuda()  # distribution consistency loss, T denotes temperature
-        if args.sema_cons is not None:
-            self.sema_crit = nn.TripletMarginWithDistanceLoss(distance_function=lambda x,y: 1.0-F.cosine_similarity(x,y), margin=2.0).cuda()
     
     def create_dataloader(self, split='train', bsize=2, use_random=None):
         if use_random is None:
@@ -85,14 +83,16 @@ class TrainingManagerSemi(TrainingManager):
                                             # worker_init_fn=worker_init_fn if self.args.batch_size==4 else None,
                                             collate_fn=dataset.collate_fn,
                                             drop_last=False)
-            dataloader_unlabeled = DataLoader(dataset, 
-                                            bsize,
-                                            shuffle=False,
-                                            sampler=sampler_unlabeled,
-                                            num_workers=8,
-                                            # worker_init_fn=worker_init_fn if self.args.batch_size==4 else None,
-                                            collate_fn=dataset.collate_fn,
-                                            drop_last=False)
+            dataloader_unlabeled = None
+            if ratio < 1:
+                dataloader_unlabeled = DataLoader(dataset, 
+                                                bsize,
+                                                shuffle=False,
+                                                sampler=sampler_unlabeled,
+                                                num_workers=8,
+                                                # worker_init_fn=worker_init_fn if self.args.batch_size==4 else None,
+                                                collate_fn=dataset.collate_fn,
+                                                drop_last=False)
             return dataloader_labeled, dataloader_unlabeled
         
         else:
@@ -120,7 +120,6 @@ class TrainingManagerSemi(TrainingManager):
                 heatmap.append(t.cat(hmap).cuda())
         
         self.model.train()
-        # gls_scores, len_video, spat_att, vis_fea, _ = self.model(video, len_of_video, heatmap[0])
         op_dict = self.model(video, len_of_video, heatmap[0])
         gls_logits, vis_logits, len_video, offset_lst, mask_lst, semantics = \
             op_dict['gls_logits'], op_dict['vis_logits'], op_dict['len_video'], op_dict['dcn_offset'], op_dict['spat_att'], op_dict['semantics']
@@ -147,6 +146,7 @@ class TrainingManagerSemi(TrainingManager):
                 hyp = [x[0] for x in groupby(pred_seq[i][0][:out_seq_len[i][0]].tolist())]
                 p_label.extend(hyp)
                 p_len_label.append(len(hyp))
+            # err, _, _, _ = get_wer_delsubins(label.cpu().tolist(), p_label)
             p_label, p_len_label = t.tensor(p_label).cuda(), t.tensor(p_len_label).cuda()
             loss_ctc_m = self.criterion(gls_logits.log_softmax(-1).permute(1,0,2), p_label, len_video, p_len_label)
             # alpha_f = 3.0
@@ -165,7 +165,7 @@ class TrainingManagerSemi(TrainingManager):
         # loss of semantic consistency
         if self.args.sema_cons is not None:
             anc, pos, neg = semantics
-            loss_sc = self.sema_crit(anc, pos, neg)
+            loss_sc = self.sema_crit(anc.detach(), pos, neg)
             loss += loss_sc
 
         # MSE loss between spatial attention mask and pose heatmap
@@ -230,7 +230,7 @@ class TrainingManagerSemi(TrainingManager):
     
     def train(self):
         dtrain_labeled, dtrain_unlabeled = self.create_dataloader(split='train', bsize=self.args_model['batch_size'])
-        dtrain_labeled_iter = enumerate(dtrain_labeled)
+        # dtrain_labeled_iter = enumerate(dtrain_labeled)
         labeled_loss_manager = LossManager(print_step=100)
         unlabeled_loss_manager = LossManager(print_step=100)
         self.model_manager = ModelManager(max_num_models=5)  # only save the best 3 models
@@ -263,7 +263,7 @@ class TrainingManagerSemi(TrainingManager):
             t.manual_seed(self.args.seed+start_epoch)  # change dataloader order
             np.random.seed(self.args.seed+start_epoch)
             dtrain_labeled, dtrain_unlabeled = self.create_dataloader(split='train', bsize=self.args_model['batch_size'])
-            dtrain_labeled_iter = enumerate(dtrain_labeled)
+            # dtrain_labeled_iter = enumerate(dtrain_labeled)
         
         # train using labeled first
         for epoch in range(start_epoch, num_pretrain_epoch):
@@ -298,18 +298,19 @@ class TrainingManagerSemi(TrainingManager):
                     model_name)
             
             # break out by learning rate
-            if self.lr_scheduler.optimizer.param_groups[0]["lr"] < 1e-5:
+            if self.lr_scheduler.optimizer.param_groups[0]["lr"] < 0.1 * self.args_opt['lr']:
                 break
         
         # train using both unlabeled and labeled
         if start_epoch < num_pretrain_epoch:
             start_epoch = num_pretrain_epoch
             epoch = num_pretrain_epoch - 1
-            t.save({'mainstream': self.model.state_dict(),
-                    'optimizer': self.optimizer.state_dict(),
-                    'lr_scheduler': self.lr_scheduler.state_dict(),
-                    'epoch':epoch},
-                    self.args.save_dir+'/full_{:d}.pkl'.format(num_pretrain_epoch))
+            if self.args.setting != 'semi_100':
+                t.save({'mainstream': self.model.state_dict(),
+                        'optimizer': self.optimizer.state_dict(),
+                        'lr_scheduler': self.lr_scheduler.state_dict(),
+                        'epoch':epoch},
+                        self.args.save_dir+'/full_{:d}.pkl'.format(num_pretrain_epoch))
 
         for epoch in range(start_epoch, self.args.max_num_epoch):
             labeled_epoch_loss = defaultdict(list)
@@ -365,7 +366,7 @@ class TrainingManagerSemi(TrainingManager):
                     model_name)
             
             # break out by learning rate
-            if self.lr_scheduler.optimizer.param_groups[0]["lr"] < 1e-5:
+            if self.lr_scheduler.optimizer.param_groups[0]["lr"] < 0.1 * self.args_opt['lr']:
                 break
         
         self.tb_writer.close()
@@ -432,7 +433,7 @@ class TrainingManagerSemi(TrainingManager):
             self.lr_scheduler.step(last_status['loss'])
             
             # break out by learning rate
-            if self.lr_scheduler.optimizer.param_groups[0]["lr"] < 1e-5:
+            if self.lr_scheduler.optimizer.param_groups[0]["lr"] < 0.1 * self.args_opt['lr']:
                 break
         
         if start_epoch < num_pretrain_epoch:
@@ -483,7 +484,7 @@ class TrainingManagerSemi(TrainingManager):
                     model_name)
             
             # break out by learning rate
-            if self.lr_scheduler.optimizer.param_groups[0]["lr"] < 1e-5:
+            if self.lr_scheduler.optimizer.param_groups[0]["lr"] < 0.1 * self.args_opt['lr']:
                 break
         
         self.tb_writer.close()

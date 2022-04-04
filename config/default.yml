@@ -17,7 +17,6 @@ model:
   seq_mod: transformer
 dcn:
   ver: v2
-  lr_factor: 1.0
 transformer:
   tf_model_size: 512
   tf_ff_size: 2048
@@ -32,9 +31,9 @@ D_std_gamma:
   - 2.0
 mod_D: null
 mod_src: Q
-comb_conv: null
+comb_conv: cas_bef_san
 qkv_context:
-- 1
+- 0
 - 0
 - 0
 va: 0
@@ -43,8 +42,8 @@ sema_cons: null
 att_idx_lst: []
 spatial_att: null
 pool_type: avg
-cbam_pool: max_avg
-cbam_no_channel: 0
+cbam_pool: max_softmax
+cbam_no_channel: 1
 att_sup_type: first
 pose: null
 pose_arg:

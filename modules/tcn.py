@@ -50,18 +50,19 @@ class TCN_block(nn.Module):
         if self.use_pool:
             self.max_pooling = nn.MaxPool1d(kernel_size=2)  #To make shape match with shortcut
         
-    def forward(self, x, len_video, mask):
+    def forward(self, x, len_video):
         '''
         Input: [B, C, max_T]
         mask: True for padding values!
         '''
+        mask = create_mask(len_video)
         x = self.conv(x)
         x = self.norm(x, mask)
         
         if not self.use_glu:
             #glu and se can provide non-linearty
             x = self.act(x)
-        elif self.use_glu:
+        else:
             #gated linear unit
             x, gate = x.split(x.shape[1]//2, dim=1)
             x = x * t.sigmoid(gate)
@@ -71,6 +72,5 @@ class TCN_block(nn.Module):
         if self.use_pool:
             x = self.max_pooling(x)
             len_video = len_video//2
-            mask = create_mask(len_video)
 
-        return x, len_video, mask
+        return x, len_video

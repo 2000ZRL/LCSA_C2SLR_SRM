@@ -12,6 +12,7 @@ from torch.nn import functional as F
 from modules.dcn import DCN_v1, DCN_v2
 from modules.coord_att import CoordAtt
 from modules.cbam import CBAM
+from modules.fde import FeaDis
 from utils.utils import freeze_params
 import math
 
@@ -19,7 +20,8 @@ import math
 #---------------------------------------------VGGNet----------------------------------------------
 class VGG11(nn.Module):
     #VGG11 without FC layers
-    def __init__(self, batch_norm=True, spatial_att=None, att_idx_lst=[], pool_type='avg', cbam_no_channel=False, cbam_pool='max_avg', freeze=False):
+    def __init__(self, batch_norm=True, spatial_att=None, att_idx_lst=[], pool_type='avg', 
+                cbam_no_channel=False, cbam_pool='max_avg', freeze=False, **kwargs):
         super(VGG11, self).__init__()
         self.cfg = [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M']
         self.batch_norm = batch_norm
@@ -45,8 +47,12 @@ class VGG11(nn.Module):
                 self.att_pool = nn.Sequential(nn.Conv2d(2,1,7,1,3,bias=False),
                                               nn.BatchNorm2d(1, eps=1e-5, momentum=0.01, affine=True),
                                               nn.SoftMax2d())
-            self.cfg  =self.cfg[:-1]
+            self.cfg = self.cfg[:-1]
         self.features = self.make_layers()
+
+        self.fde_type = kwargs.pop('fde', None)
+        if self.fde_type is not None:
+            self.fde_mod = FeaDis(num_channels=512, num_signers=kwargs.pop('num_signers', 8), fde_type=self.fde_type)
     
     def make_layers(self):
         if self.dcn_ver == 'v1':
@@ -83,9 +89,15 @@ class VGG11(nn.Module):
         
         return nn.ModuleList(layers)
     
-    def forward(self, x, heatmap=None):
+    def forward(self, x, **kwargs):
+        heatmap = kwargs.pop('heatmap', None)
+        signer = kwargs.pop('signer', None)
+        signer_emb_bank = kwargs.pop('signer_emb_bank', {})
+        len_video = kwargs.pop('len_video', None)
         offset_lst = []
         mask_lst = []
+        num_conv_block = 0
+        sg_sg2_cam = [None,None,None]; cg_ch_cam = [None,None]; signer_emb = signer_logits = None
         for layer in self.features:
             if isinstance(layer, DCN_v1) or isinstance(layer, DCN_v2):
                 offset, mask, x = layer(x, heatmap)
@@ -95,11 +107,24 @@ class VGG11(nn.Module):
                 mask, x = layer(x)
                 mask_lst.append(mask)
             elif isinstance(layer, CBAM):
-                channel_weights, mask, x = layer(x)
+                channel_weights, gates, x = layer(x)
+                _, mask = gates
                 mask_lst.append(mask)
                 offset_lst.append(channel_weights)
             else:
                 x = layer(x)
+            
+            if self.fde_type is not None and isinstance(layer, nn.ReLU):
+                num_conv_block += 1
+                if num_conv_block == self.att_idx_lst[0]+1:
+                    sg_sg2_cam, cg_ch_cam, signer_emb, signer_logits, x = self.fde_mod(x, signer, signer_emb_bank, len_video)
+
+            # heatmap filter
+            # if heatmap is not None and isinstance(layer, nn.Conv2d):
+            #     num_conv += 1
+            #     if num_conv == 5:
+            #         x = x.mul(heatmap)
+        
         if self.pool_type == 'avg':
             x = self.avgpool(x)
         else:
@@ -110,12 +135,13 @@ class VGG11(nn.Module):
             elif self.pool_type == 'cbam-like':
                 w = self.attpool(t.cat((t.max(x,1)[0].unsqueeze(1), t.mean(x,1).unsqueeze(1)), dim=1))
             x = (w*x).sum(dim=(-2,-1))
-        x = t.flatten(x, 1)
-        return offset_lst, mask_lst, x
+        
+        return {'offset_lst': offset_lst, 'mask_lst': mask_lst, 'output': x.flatten(1), 
+                'cam': sg_sg2_cam, 'ch_cam': cg_ch_cam, 'signer_emb': signer_emb, 'signer_logits': signer_logits}
 
 
-def vgg11(batch_norm=True, spatial_att=None, att_idx_lst=[], pool_type='avg', cbam_no_channel=False, cbam_pool='max_avg', freeze=False, pretrained=True, pre_model_path=None):
-    model = VGG11(batch_norm, spatial_att, att_idx_lst, pool_type, cbam_no_channel, cbam_pool, freeze)
+def vgg11(batch_norm=True, spatial_att=None, att_idx_lst=[], pool_type='avg', cbam_no_channel=False, cbam_pool='max_avg', freeze=False, pretrained=True, pre_model_path=None, **kwargs):
+    model = VGG11(batch_norm, spatial_att, att_idx_lst, pool_type, cbam_no_channel, cbam_pool, freeze, fde=kwargs.pop('fde', None), num_signers=kwargs.pop('num_signers', 8))
     if pretrained:
         state_dict = t.load(pre_model_path)
         
@@ -128,24 +154,6 @@ def vgg11(batch_norm=True, spatial_att=None, att_idx_lst=[], pool_type='avg', cb
                 del state_dict['features.'+str(idx)+'.weight']
                 # Since bias are illegal for deformable convnets, here we remove params of batchnorm layers followed deform layers
                 # state_dict = dict(filter(lambda item: str(idx+1) not in item[0], state_dict.items()))
-        
-        # elif spatial_att in ['ca', 'cbam']:
-        #     offset = num_att-1
-        #     for i in range(num_att-1):
-        #         idx = conv_layer[7-i]
-        #         state_dict['features.'+str(idx+1+offset)+'.weight'] = state_dict['features.'+str(idx+1)+'.weight']
-        #         del state_dict['features.'+str(idx+1)+'.weight']
-        #         state_dict['features.'+str(idx+1+offset)+'.bias'] = state_dict['features.'+str(idx+1)+'.bias']
-        #         del state_dict['features.'+str(idx+1)+'.bias']
-        #         state_dict['features.'+str(idx+1+offset)+'.running_mean'] = state_dict['features.'+str(idx+1)+'.running_mean']
-        #         del state_dict['features.'+str(idx+1)+'.running_mean']
-        #         state_dict['features.'+str(idx+1+offset)+'.running_var'] = state_dict['features.'+str(idx+1)+'.running_var']
-        #         del state_dict['features.'+str(idx+1)+'.running_var']
-        #         state_dict['features.'+str(idx+offset)+'.weight'] = state_dict['features.'+str(idx)+'.weight']
-        #         del state_dict['features.'+str(idx)+'.weight']
-        #         state_dict['features.'+str(idx+offset)+'.bias'] = state_dict['features.'+str(idx)+'.bias']
-        #         del state_dict['features.'+str(idx)+'.bias']
-        #         offset -= 1
         
         elif spatial_att in ['ca', 'cbam']:
             offset = len(att_idx_lst)
@@ -178,7 +186,7 @@ def vgg11(batch_norm=True, spatial_att=None, att_idx_lst=[], pool_type='avg', cb
 class BasicBlock(nn.Module):
     expansion = 1
     
-    def __init__(self, inchannels, outchannels, stride=1, downsample=None, norm_layer=None, spatial_att=None):
+    def __init__(self, inchannels, outchannels, stride=1, downsample=None, norm_layer=None, spatial_att=None, cbam_no_channel=False, cbam_pool='max_avg'):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -195,7 +203,7 @@ class BasicBlock(nn.Module):
         self.bn2 = norm_layer(outchannels)
         
         if spatial_att == 'cbam':
-            self.att_mod = CBAM(outchannels, 16)
+            self.att_mod = CBAM(outchannels, 16, no_channel=cbam_no_channel, channel_pool=cbam_pool)
         elif spatial_att == 'ca':
             self.att_mod = CoordAtt(outchannels, outchannels)
         self.downsample = downsample
@@ -218,18 +226,18 @@ class BasicBlock(nn.Module):
         
         if self.downsample is not None:
             identity = self.downsample(x)
-            
-        if self.spatial_att in ['cbam', 'ca']:
-            mask, out = self.att_mod(out)
         
         out += identity
         out = self.relu(out)
+
+        if self.spatial_att in ['cbam', 'ca']:
+            offset, mask, out = self.att_mod(out)
         
         return offset, mask, out
 
 
 class ResNet_wo_fc(nn.Module):
-    def __init__(self, block=BasicBlock, layers=[2,2,2,2], norm_layer=None, zero_init_residual=True, spatial_att=None):
+    def __init__(self, block=BasicBlock, layers=[2,2,2,2], norm_layer=None, zero_init_residual=True, spatial_att=None, cbam_no_channel=False, cbam_pool='max_avg'):
         super(ResNet_wo_fc, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -242,9 +250,9 @@ class ResNet_wo_fc(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0], spatial_att=None)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, spatial_att=spatial_att)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, spatial_att=spatial_att)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, spatial_att=spatial_att)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, spatial_att=spatial_att, cbam_no_channel=cbam_no_channel, cbam_pool=cbam_pool)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, spatial_att=None)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, spatial_att=None)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         # no fc layer
         
@@ -261,7 +269,7 @@ class ResNet_wo_fc(nn.Module):
                 if isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
         
-    def _make_layer(self, block, channels, num_block, stride=1, spatial_att=None):
+    def _make_layer(self, block, channels, num_block, stride=1, spatial_att=None, cbam_no_channel=False, cbam_pool='max_avg'):
         norm_layer = self._norm_layer
         downsample = None
         if stride != 1 or self.inchannels != channels * block.expansion:
@@ -271,10 +279,10 @@ class ResNet_wo_fc(nn.Module):
                 norm_layer(channels*block.expansion),)
             
         layers = []
-        layers.append(block(self.inchannels, channels, stride, downsample, norm_layer, spatial_att=spatial_att))
+        layers.append(block(self.inchannels, channels, stride, downsample, norm_layer))
         self.inchannels = channels * block.expansion
         for _ in range(1, num_block):
-            layers.append(block(self.inchannels, channels, norm_layer=norm_layer, spatial_att=spatial_att))
+            layers.append(block(self.inchannels, channels, norm_layer=norm_layer, spatial_att=spatial_att, cbam_no_channel=cbam_no_channel, cbam_pool=cbam_pool))
             
         return nn.ModuleList(layers)
     
@@ -295,14 +303,14 @@ class ResNet_wo_fc(nn.Module):
         x = self.avgpool(x)
         x = t.flatten(x, 1)  #[B, 512]?
         
-        return offset_lst, mask_lst, x
+        return {'offset_lst': offset_lst, 'mask_lst': mask_lst, 'output': x}
     
-    def forward(self, x, heatmap=None):
+    def forward(self, x, **kwargs):
         return self._forward_impl(x)
 
 
-def resnet18_wo_fc(block=BasicBlock, layers=[2,2,2,2], spatial_att=None, pretrained=True, pre_model_path='', **kwargs):
-    model = ResNet_wo_fc(block, layers, spatial_att=spatial_att)
+def resnet18_wo_fc(block=BasicBlock, layers=[2,2,2,2], spatial_att=None, cbam_no_channel=False, cbam_pool='max_avg', pretrained=True, pre_model_path='', **kwargs):
+    model = ResNet_wo_fc(block, layers, spatial_att=spatial_att, cbam_no_channel=cbam_no_channel, cbam_pool=cbam_pool)
     if pretrained:
         state_dict = t.load(pre_model_path)
         if spatial_att == 'dcn':
@@ -314,6 +322,91 @@ def resnet18_wo_fc(block=BasicBlock, layers=[2,2,2,2], spatial_att=None, pretrai
         model.load_state_dict(state_dict, strict=False)
     
     return model
+
+
+#---------------------------------------------9-layer CNN in FCN------------------------------------
+class CNN(nn.Module):    
+    def __init__(self, batch_norm=True, spatial_att=None, att_idx_lst=[], pool_type='avg', cbam_no_channel=False, cbam_pool='max_avg'):
+        super(CNN, self).__init__()
+        self.cfg = [32, 'M', 64, 'M', 64, 128, 'M', 128, 256, 'M', 256, 512, 'M', 512]
+        self.batch_norm = batch_norm
+        self.spatial_att = spatial_att
+        self.att_idx_lst = att_idx_lst
+        
+        self.cbam_pool = cbam_pool
+        self.cbam_no_channel = cbam_no_channel
+        self.pool_type = pool_type
+        if pool_type == 'avg':
+            self.avgpool = nn.AdaptiveAvgPool2d((1,1))  #7,7?
+        else:
+            if pool_type == 'gcnet-like':
+                # GCNet-like attention pooling
+                self.attpool = nn.Sequential(nn.Conv2d(512, 1, 1),
+                                             nn.Softmax2d())
+                # if use attention pooling, then remove the last max-pooling layer
+            elif pool_type == 'avg_softmax':
+                self.att_pool = nn.Softmax2d()
+            elif pool_type == 'cbam-like':
+                self.att_pool = nn.Sequential(nn.Conv2d(2,1,7,1,3,bias=False),
+                                              nn.BatchNorm2d(1, eps=1e-5, momentum=0.01, affine=True),
+                                              nn.SoftMax2d())
+            self.cfg  =self.cfg[:-1]
+        self.features = self.make_layers()
+    
+    def make_layers(self):
+        layers = []
+        in_channels = 3
+        num_conv, num_pool = 0, 0
+        for v in self.cfg:
+            if v == 'M':
+                layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+                num_pool += 1
+            else:
+                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+                if self.batch_norm:
+                    layers.extend([conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)])
+                else:
+                    layers.extend([conv2d, nn.ReLU(inplace=True)])
+                if self.spatial_att == 'ca' and num_conv in self.att_idx_lst:
+                    layers.append(CoordAtt(v, v))
+                if self.spatial_att == 'cbam' and num_conv in self.att_idx_lst:
+                    layers.append(CBAM(v, 16, no_channel=self.cbam_no_channel, channel_pool=self.cbam_pool))
+                in_channels = v
+                num_conv += 1
+        
+        return nn.ModuleList(layers)
+    
+    def forward(self, x, **kwargs):
+        heatmap = kwargs.pop('heatmap', None)
+        signer = kwargs.pop('signer', None)
+        offset_lst = []
+        mask_lst = []
+        for layer in self.features:
+            if isinstance(layer, CoordAtt):
+                mask, x = layer(x)
+                mask_lst.append(mask)
+            elif isinstance(layer, CBAM):
+                channel_weights, mask, x = layer(x)
+                mask_lst.append(mask)
+                offset_lst.append(channel_weights)
+            else:
+                x = layer(x)
+        if self.pool_type == 'avg':
+            x = self.avgpool(x)
+        else:
+            if self.pool_type == 'gcnet-like':
+                w = self.attpool(x)
+            elif self.pool_type == 'avg_softmax':
+                w = self.attpool(x.mean(dim=1, keepdims=True))
+            elif self.pool_type == 'cbam-like':
+                w = self.attpool(t.cat((t.max(x,1)[0].unsqueeze(1), t.mean(x,1).unsqueeze(1)), dim=1))
+            x = (w*x).sum(dim=(-2,-1))
+        x = t.flatten(x, 1)
+        return {'offset_lst': offset_lst, 'mask_lst': mask_lst, 'output': x}
+
+
+def cnn9(batch_norm=True, spatial_att=None, att_idx_lst=[], pool_type='avg', cbam_no_channel=False, cbam_pool='max_avg', **kwargs):
+    return CNN(batch_norm, spatial_att, att_idx_lst, pool_type, cbam_no_channel, cbam_pool)
 
 
 #---------------------------------------------MobileNet_v2------------------------------------
@@ -436,7 +529,9 @@ class MBV2(nn.Module):
 
         self._initialize_weights()
 
-    def forward(self, x, heatmap=None):
+    def forward(self, x, **kwargs):
+        heatmap = kwargs.pop('heatmap', None)
+        signer = kwargs.pop('signer', None)
         mask_lst = []
         for layer in self.features:
             if isinstance(layer, InvertedResidual):

@@ -5,9 +5,39 @@ Created on Tue Nov  3 15:52:07 2020
 @author: 14048
 """
 from itertools import groupby
+import os
+
+def convert_and_clean(inp, vocab):
+    temp = []
+    for x in inp:
+        if vocab[x] == '<unk>':
+            t = '\<unk\>'
+            temp.append(t)
+        else:
+            temp.append(vocab[x])
+    temp = '\ '.join(temp)
+    cmd = "sh ./evaluation_relaxation/clean.sh {:s}".format(temp)
+    f = os.popen(cmd, 'r')
+    cleaned = f.read()
+    f.close()
+    # print(cleaned)
+    cleaned = cleaned.strip().split(' ')
+    res = []
+    for x in cleaned:
+        try:
+            res.append(vocab.index(x))
+        except:
+            continue
+    return res
 
 
-def get_wer_delsubins(ref, hyp, debug=False):
+def get_wer_delsubins(ref, hyp, debug=False, vocab=None, save_dir=None, id=None):
+    if debug:
+        assert vocab is not None
+        assert save_dir is not None
+        assert id is not None
+        ref, hyp = convert_and_clean(ref, vocab), convert_and_clean(hyp, vocab)
+    
     DEL_PENALTY = 1
     SUB_PENALTY = 1
     INS_PENALTY = 1
@@ -63,7 +93,7 @@ def get_wer_delsubins(ref, hyp, debug=False):
     numIns = 0
     numCor = 0
     if debug:
-        print("OP\tREF\tHYP")
+        # print("OP\tREF\tHYP")
         lines = []
     while i > 0 or j > 0:
         if backtrace[i][j] == OP_OK:
@@ -71,31 +101,39 @@ def get_wer_delsubins(ref, hyp, debug=False):
             i -= 1
             j -= 1
             if debug:
-                lines.append("OK\t" + r[i] + "\t" + h[j])
+                lines.append("OK " + vocab[r[i]] + " " + vocab[h[j]])
         elif backtrace[i][j] == OP_SUB:
             numSub += 1
             i -= 1
             j -= 1
             if debug:
-                lines.append("SUB\t" + r[i] + "\t" + h[j])
+                lines.append("SUB " + vocab[r[i]] + " " + vocab[h[j]])
         elif backtrace[i][j] == OP_INS:
             numIns += 1
             j -= 1
             if debug:
-                lines.append("INS\t" + "****" + "\t" + h[j])
+                lines.append("INS " + "****" + " " + vocab[h[j]])
         elif backtrace[i][j] == OP_DEL:
             numDel += 1
             i -= 1
             if debug:
-                lines.append("DEL\t" + r[i] + "\t" + "****")
-    if debug:
-        lines = reversed(lines)
-        for line in lines:
-            print(line)
-        print("#cor " + str(numCor))
-        print("#sub " + str(numSub))
-        print("#del " + str(numDel))
-        print("#ins " + str(numIns))
+                lines.append("DEL " + vocab[r[i]] + " " + "****")
+    if debug and numSub + numDel + numIns > 0:
+        with open(save_dir+'/badcase.txt', 'a+') as f:
+            f.write(id + '\n')
+            f.write(' '.join([vocab[x] for x in ref]) + '\n')
+            f.write(' '.join([vocab[x] for x in hyp]) + '\n')
+            # f.write("OP\tREF\tHYP\n")
+            lines = reversed(lines)
+            for line in lines:
+                if 'OK' in line:
+                    continue
+                f.write(line+'\n')
+            f.write('\n')
+            # print("#cor " + str(numCor))
+            # print("#sub " + str(numSub))
+            # print("#del " + str(numDel))
+            # print("#ins " + str(numIns))
     return (numSub + numDel + numIns) / (float)(len(r)), numSub / float(len(r)), numIns / float(len(r)), numDel / float(len(r))
 
 

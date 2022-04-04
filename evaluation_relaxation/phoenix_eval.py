@@ -7,6 +7,8 @@ def get_phoenix_wer(hyp, phase, tmp_prefix, shell_dir='evaluation_relaxation', d
         shell_file = os.path.join(shell_dir, 'phoenix_T_eval.sh')
     elif dataset == '2014SI':
         shell_file = os.path.join(shell_dir, 'phoenix_SI_eval.sh')
+    elif dataset == '2014SI7':
+        shell_file = os.path.join(shell_dir, 'phoenix_SI3_eval.sh')
     elif 'csl' in dataset:
         return [0., 0., 0., 0.]
     cmd = "sh {:s} {:s} {:s} {:s}".format(shell_file, hyp, phase, tmp_prefix)

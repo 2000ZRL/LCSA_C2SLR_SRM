@@ -1,3 +1,4 @@
+import unicodedata
 import pandas as pd
 from pathlib import Path
 from pandarallel import pandarallel
@@ -59,6 +60,7 @@ class PhoenixCorpus(Corpus):
         path = self.root / "annotations" / "manual" / f"{split}.corpus.csv"
         df = pd.read_csv(path, sep="|")
         df["annotation"] = df["annotation"].apply(str.split)
+        df["signer"] = df["signer"].apply(lambda x: int(x[-2:])-1)
 
         if split == "train" and aligned_annotation:
             # append alignment to data frame
@@ -70,7 +72,6 @@ class PhoenixCorpus(Corpus):
             df = pd.merge(df, adf, "left", "id")
 
         df["folder"] = split + "/" + df["folder"].apply(lambda s: s.rsplit("/", 1)[0])
-
         return df
 
     def get_frames(self, sample, type):
@@ -84,9 +85,11 @@ class PhoenixSICorpus(Corpus):
 
     def load_data_frame(self, split, aligned_annotation=False):
         """Load corpus."""
-        path = self.root / "annotations" / "manual" / f"{split}.SI5.corpus.csv"
+        path = self.root / "annotations" / "manual" / f"new_{split}.SI5.corpus.csv"
         df = pd.read_csv(path, sep="|")
         df["annotation"] = df["annotation"].apply(str.split)
+        signer_lst = [1,2,3,4,6,7,8,9,5]  #signer05 only appears in dev and test set.
+        df["signer"] = df["signer"].apply(lambda x: signer_lst.index(int(x[-2:])))
 
         if split == "train" and aligned_annotation:
             # append alignment to data frame
@@ -97,14 +100,43 @@ class PhoenixSICorpus(Corpus):
             del df["annotation"]
             df = pd.merge(df, adf, "left", "id")
 
-        df["folder"] = split + "/" + df["folder"].apply(lambda s: s.rsplit("/", 1)[0])
-
+        df["folder"] = df["folder"].apply(lambda s: s.rsplit("/", 1)[0])
         return df
 
     def get_frames(self, sample, type):
         frames = (self.root / "features" / type / sample["folder"]).glob("*.png")
         return sorted(frames)
-    
+
+
+class PhoenixSI7Corpus(Corpus):
+    def __init__(self, root, max_len):
+        self.root = Path(root)
+
+    def load_data_frame(self, split, aligned_annotation=False):
+        """Load corpus."""
+        path = self.root / "annotations" / "manual" / f"new_{split}.SI3.corpus.csv"
+        df = pd.read_csv(path, sep="|")
+        df["annotation"] = df["annotation"].apply(str.split)
+        # signer_lst = [1,2,3,4,5,6,8,9,7]  #signer07 only appears in dev and test set.
+        signer_lst = [1,2,4,5,6,7,8,9,3]  #signer03 only appears in dev and test set.
+        df["signer"] = df["signer"].apply(lambda x: signer_lst.index(int(x[-2:])))
+
+        if split == "train" and aligned_annotation:
+            # append alignment to data frame
+            # note that only train split has alignment
+            adf = self.load_alignment()
+            adf = adf.rename({"gloss": "annotation"}, axis=1)
+            adf = adf["annotation"]
+            del df["annotation"]
+            df = pd.merge(df, adf, "left", "id")
+
+        df["folder"] = df["folder"].apply(lambda s: s.rsplit("/", 1)[0])
+        return df
+
+    def get_frames(self, sample, type):
+        frames = (self.root / "features" / type / sample["folder"]).glob("*.png")
+        return sorted(frames)
+
 
 class PhoenixTCorpus(PhoenixCorpus):
     def __init__(self, root, max_len):
@@ -122,6 +154,7 @@ class PhoenixTCorpus(PhoenixCorpus):
         
         df["annotation"] = df["annotation"].apply(str.split)
         df["folder"] = split + "/" + df["folder"].apply(lambda s: s.rsplit("/", 2)[0])
+        df["signer"] = df["signer"].apply(lambda x: int(x[-2:]))
         
         # remove too long videos
         # if split == 'train':
@@ -136,7 +169,49 @@ class PhoenixTCorpus(PhoenixCorpus):
     def get_frames(self, sample, type):
         frames = (self.root / "features" / type / sample["folder"]).glob("*.png")
         return sorted(frames)
+
+
+class TVBCorpus(PhoenixCorpus):
+    def __init__(self, root, max_len):
+        self.root = Path(root)
+
+    def load_data_frame(self, split) -> pd.DataFrame:
+        if split == 'dev':
+            split = 'val'
+        path = self.root / "split" / "v4.1" / f"{split}.csv"
+        df = pd.read_csv(path, sep="|")
+        df = df.dropna()
+
+        words = df["words"].apply(lambda s: unicodedata.normalize("NFKC", s))
+        words = words.apply(list)
+        df["words"] = words
+
+        glosses = df["glosses"].apply(lambda s: unicodedata.normalize("NFKC", s))
+        glosses = glosses.str.replace(r"(\d+)([^ ]+)", r"\g<1> \g<2>", regex=True)
+        glosses = glosses.str.replace("[#%*!@]", "", regex=True)
+        glosses = glosses.str.replace("BAD-SEGMENT", "", regex=False)
+        glosses = glosses.str.replace("MUMBLE", "", regex=False)
+        glosses = glosses.str.replace(r"\(.+?\)", "", regex=True)
+        glosses = glosses.str.replace(r" +", " ", regex=True)
+        glosses = glosses.str.split("[ +]")
+        df["glosses"] = glosses
+        df = df.rename(columns={"glosses": "annotation"})
+        # df["id"] = df["folder"].apply(lambda s: s.replace("/", "-"))
+        df["folder"] = df["signer"] = df["id"]
+        return df
     
+    def get_frames(self, sample, type):
+        frames = (self.root / "grouped" / "sign" / "sign" / sample["folder"]).glob("*.jpg")
+        return sorted(frames)
+
+    # def gloss_table(self):
+    #     df = self.load_csv("train")
+    #     return LookupTable(words={w for ws in df["glosses"].tolist() for w in ws})
+
+    # def word_table(self):
+    #     df = self.load_csv("train")
+    #     return LookupTable(words={w for ws in df["words"].tolist() for w in ws})
+
 
 class CSLCorpus(PhoenixCorpus):
     def __init__(self, root, max_len):
@@ -150,7 +225,7 @@ class CSLCorpus(PhoenixCorpus):
         df = pd.read_csv(path, sep=",")
         df = df.rename(columns={"VideoID": "id", "Description": "annotation",})
         df["annotation"] = df["annotation"].apply(str.split)
-        df["signer"] = df["id"].apply(lambda s: s.split("_")[0])
+        df["signer"] = df["id"].apply(lambda s: int(s.split("_")[0][1:])-1)
         
         if split == 'train':
             df = df[df['Type']=='train']
@@ -182,7 +257,7 @@ class CSLCorpus(PhoenixCorpus):
 class CSLDailyCorpus(PhoenixCorpus):
     def __init__(self, root, max_len):
         self.root = Path(root)
-        self.split_doc = 'split_1.txt'
+        self.split_doc = 'split_SI7.txt'
         self.max_len = max_len
 
     def load_data_frame(self, split):
@@ -196,15 +271,22 @@ class CSLDailyCorpus(PhoenixCorpus):
         df = pd.DataFrame(data['info'])
         df = df.merge(spl, how='inner', on='name')
         df = df.rename(columns={"name": "id", "label_gloss": "annotation"})
-        # df["annotation"] = df["annotation"].apply(str.split)
-        # df["signer"] = df["id"].apply(lambda s: s.split("_")[0])
+        signer_lst = []
+        k = 0
+        for i in range(10):
+            if 'SI'+str(i) in self.split_doc:
+                k = i
+                continue
+            signer_lst.append(i)
+        signer_lst.append(k)
+        df['signer'] = df["signer"].apply(lambda x: signer_lst.index(x))
         
         if split == 'train':
             df = df[df['split']=='train']
         elif split == 'dev':
-            df = df[df['Type']=='dev']
+            df = df[df['split']=='dev']
         elif split == 'test':
-            df = df[df['Type']=='test']
+            df = df[df['split']=='test']
         else:
             raise ValueError('We only support train, dev and test but got {}'.format(split))
         

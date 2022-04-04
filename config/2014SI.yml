@@ -1,0 +1,79 @@
+data:
+  dataset: '2014SI'
+  aug_type: random_drop
+  max_len: 140
+  p_drop: 0.5
+  resize_shape:
+  - 256
+  - 256
+  crop_shape:
+  - 224
+  - 224
+model:
+  name: lcsa
+  batch_size: 2
+  emb_size: 512
+  vis_mod: vgg11
+  seq_mod: transformer
+dcn:
+  ver: v2
+transformer:
+  tf_model_size: 512
+  tf_ff_size: 2048
+  num_layers: 2
+  num_heads: 8
+  dropout: 0.1
+  emb_dropout: 0.1
+  pe: rpe_gau
+D_std_gamma:
+  - 6.3
+  - 1.5
+  - 2.0
+mod_D: null
+mod_src: Q
+comb_conv: cas_bef_san
+qkv_context:
+- 0
+- 0
+- 0
+va: 0
+ve: 0
+sema_cons: null
+att_idx_lst: []
+spatial_att: null
+pool_type: avg
+cbam_pool: max_softmax
+cbam_no_channel: 1
+att_sup_type: first
+pose: null
+pose_arg:
+- 3
+- 0.5
+pose_dim: 0
+heatmap_num: 3
+heatmap_shape:
+- 28
+heatmap_type: gaussian
+pose_f: 1.0
+from_ckpt: 0
+save_dir: ./results/test
+max_num_epoch: 45
+num_pretrain_epoch: 0
+optimizer:
+  name: adam
+  lr: 0.0001
+  betas: !!python/tuple
+  - 0.9
+  - 0.999
+  weight_decay: 0.0001
+  momentum: null
+lr_scheduler:
+  name: plateau
+  decrease_factor: 0.7
+  patience: 6
+beam_size: 10
+seed: 42
+gpu: 1
+setting: full
+mode: train
+test_split: test

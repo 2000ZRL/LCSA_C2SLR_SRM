@@ -66,9 +66,9 @@ class MultiHeadedAttention(nn.Module):
 
         self.D, self.std, self.gamma = D_std_gamma
         if mod_D is not None:
-            if mod_D in ['head_specific', 'nostat']:
+            if mod_D in ['head_specific']:
                 self.mod_D_layer = nn.Linear(size, num_heads)
-            elif mod_D == 'head_share':
+            elif mod_D in ['head_share', 'nostat']:
                 self.mod_D_layer = nn.Linear(size, 1)
             if isinstance(self.mod_D_layer, nn.Sequential):
                 l = self.mod_D_layer[-1]
@@ -159,7 +159,6 @@ class MultiHeadedAttention(nn.Module):
             cen_off = self.cen_layer(q)
             cen_off = (f_len * torch.sigmoid(cen_off/self.gamma).transpose(0,-1)).transpose(0,-1)  #[B,T,1]
 
-        
         # reshape q, k, v for our computation to [batch_size, num_heads, ..]
         k = k.view(batch_size, -1, num_heads, self.head_size).transpose(1, 2)
         v = v.view(batch_size, -1, num_heads, self.head_size).transpose(1, 2)
@@ -183,7 +182,7 @@ class MultiHeadedAttention(nn.Module):
             distance = self.get_dist(T, cen_off).float()  #[T,T] or [B,1,T,T]
             distance = distance.expand_as(scores)
             if self.mod_src in ['Q', 'ori_Q']:
-                if self.mod_D in ['head_specific', 'nostat']:
+                if self.mod_D in ['head_specific']:
                     m_D = m_D.expand_as(scores.permute(3,0,2,1)).permute(1,3,2,0)
                 else:
                     m_D = m_D.expand_as(scores.permute(1,3,0,2)).permute(2,0,3,1)
@@ -320,7 +319,7 @@ class PositionalEncoding(nn.Module):
         )
         pe[:, 0::2] = torch.sin(position.float() * div_term)
         pe[:, 1::2] = torch.cos(position.float() * div_term)
-        pe = pe.unsqueeze(0)  # shape: [1, size, max_len]
+        pe = pe.unsqueeze(0)  # shape: [1, max_len, size]
         super(PositionalEncoding, self).__init__()
         self.register_buffer("pe", pe)
         self.dim = size
@@ -329,7 +328,7 @@ class PositionalEncoding(nn.Module):
         """Embed inputs.
         Args:
             emb (FloatTensor): Sequence of word vectors
-                ``(seq_len, batch_size, self.dim)``
+                ``(batch_size, seq_len, self.dim)``
         """
         # Add position encodings
         return emb + self.pe[:, : emb.size(1)]
@@ -344,7 +343,7 @@ class TransformerEncoderLayer(nn.Module):
     def __init__(
         self, size: int = 0, ff_size: int = 0, num_heads: int = 0, dropout: float = 0.1,
         pe='rpe_gau', D_std_gamma=[6.3,1.4,2.0], mod_D=None, mod_src='Q', comb_conv=None,
-        qkv_context=[0,0,0], qkv_fuse_type=None
+        qkv_context=[0,0,0], qkv_fuse_type=None, need_cls_token=None
     ):
         """
         A single Transformer layer.
@@ -375,7 +374,7 @@ class TransformerEncoderLayer(nn.Module):
         )
         self.dropout = nn.Dropout(dropout)
         self.size = size
-        
+        self.need_cls_token = need_cls_token
 
     # pylint: disable=arguments-differ
     def forward(self, x: Tensor, mask: Tensor, need_att=False) -> Tensor:
@@ -390,8 +389,13 @@ class TransformerEncoderLayer(nn.Module):
         :return: output tensor
         """
         if self.comb_conv == 'cas_bef_san':
-            x = self.depthwise_conv(x)
-        # x = self.d_conv(x)
+            if self.need_cls_token == 'sen':
+                sen_token, fea = x.split([1, x.shape[1]-1], dim=1)
+                fea = self.depthwise_conv(fea)
+                x = torch.cat([sen_token, fea], dim=1)
+            else:
+                x = self.depthwise_conv(x)
+        
         #MHA
         x_norm = self.layer_norm(x)
         h, att = self.src_src_att(x_norm, x_norm, x_norm, mask, need_att)
@@ -426,10 +430,6 @@ class TransformerEncoderLayer(nn.Module):
             gate = None
         
         o = self.feed_forward(h)
-        
-        # if self.comb_conv == 'cas_aft_ffn':
-        #     o = self.depthwise_conv(o)
-        
         return o, att
 
 

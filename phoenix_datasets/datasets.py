@@ -1,5 +1,6 @@
 import glob
 import numpy as np
+from sympy import S
 import torch
 from torch.utils.data import Dataset
 from functools import partial
@@ -54,7 +55,7 @@ class VideoTextDataset(Dataset):
         assert (
             self.Corpus is not None
         ), f"Corpus is not defined in the derived class {self.__class__.__name__}."
-        
+        self.dset_name = args['dataset']
         self.aug_type = args['aug_type']
         self.max_len = args['max_len']
         
@@ -140,14 +141,15 @@ class VideoTextDataset(Dataset):
     def select_elements(l, indices):
         return [l[i] for i in indices]
     
-    @staticmethod
-    def gen_gaussian_hmap(coords, H, hmap_num=3):
-        sigma = H/14
+    def gen_gaussian_hmap(self, coords, H):
+        hmap_num = self.heatmap_num
+        gamma = [14,14,14]
+        sigma = [H/g for g in gamma]
         T = coords.shape[0]
         x, y = torch.meshgrid(torch.arange(H), torch.arange(H))
         grid = torch.stack([x,y], dim=2)  #[H,H,2]
         grid = grid.repeat((T,1,1,1)).permute(1,2,0,3)  #[H,H,T,2]
-        hmap = [torch.exp(-((grid-(c.squeeze()*(H-1)))**2).sum(dim=-1) / (2*sigma**2)) for c in coords.chunk(hmap_num, dim=1)]  #[H,H,T]
+        hmap = [torch.exp(-((grid-(c.squeeze()*(H-1)))**2).sum(dim=-1) / (2*s**2)) for c,s in zip(coords.chunk(hmap_num, dim=1),sigma)]  #[H,H,T]
         hmap = torch.stack(hmap, dim=0).permute(3,0,1,2)  #[T,3,H,H]
         return hmap
     
@@ -175,20 +177,29 @@ class VideoTextDataset(Dataset):
         texts = list(map(self.vocab, sample["annotation"]))
         ids = list(sample['id'])
         
-        hmaps = []
-        finer_coords = []
+        hmaps = torch.empty(1)
+        finer_coords = torch.empty(1)
         hmaps_norm = []
         if self.pose is not None:
             video_id = ''.join(ids)
-            fname = os.path.join(self.corpus.root, 'heatmaps_7', self.split, video_id+'.npz')
+            if self.dset_name in ['2014', '2014SI', '2014SI7']:
+                fname = os.path.join('../../data/phoenix2014-release/phoenix-2014-multisigner/heatmaps_7', video_id+'.npz')
+            elif self.dset_name == 'csl-daily':
+                fname = os.path.join(self.corpus.root, 'heatmaps_7', video_id+'.npz')
+            else:
+                fname = os.path.join(self.corpus.root, 'heatmaps_7', self.split, video_id+'.npz')
             data = np.load(fname)
-            heatmaps, finer_coords = data['heatmaps'], data['finer_coords']
+            if self.dset_name != 'csl-daily':
+                heatmaps = data['heatmaps']
+            finer_coords = data['finer_coords']
             # coords = torch.from_numpy(coords[indices, ...]).float()
             finer_coords = torch.from_numpy(finer_coords[indices, ...]).float()
             heatmap_mean = self.heatmap_mean[:]
             if self.heatmap_num == 3:
                 idx = [0,6,1]
-                heatmaps, finer_coords = heatmaps[:, idx, ...], finer_coords[:, idx, ...]
+                if self.dset_name != 'csl-daily':
+                    heatmaps = heatmaps[:, idx, ...]
+                finer_coords = finer_coords[:, idx, ...]
                 heatmap_mean = [self.heatmap_mean[i] for i in idx]
             
             if self.heatmap_type == 'origin':
@@ -196,7 +207,7 @@ class VideoTextDataset(Dataset):
             elif self.heatmap_type in ['gaussian', 'norm']:
                 hmaps = []
                 for H in self.h_lst:
-                    tmp = self.gen_gaussian_hmap(finer_coords, H, self.heatmap_num)
+                    tmp = self.gen_gaussian_hmap(finer_coords, H)
                     if self.heatmap_type == 'norm':
                         # Directly L1 norm over spatial dimension, it is equal to softmax on negative distance
                         hmaps_norm.append(tmp / tmp.sum(dim=(-2,-1), keepdims=True))
@@ -208,16 +219,16 @@ class VideoTextDataset(Dataset):
                     hmap = transforms.functional.resize(hmap, [self.h_lst[i],self.h_lst[i]])
                     hmaps[i] = hmap.amax(dim=1, keepdim=True)
             
-            elif self.pose in ['filter', 'deform_mask', 'deform_and_mask', 'super_att']:
+            elif self.pose in ['filter', 'deform_mask', 'deform_and_mask', 'super_att', 'prior']:
                 for i in range(len(hmaps)):
                     hmap = transforms.functional.resize(hmaps[i], [self.h_lst[i],self.h_lst[i]])
-                    hmaps[i] = hmaps[i].amax(dim=1, keepdim=True)
+                    hmaps[i] = hmap.amax(dim=1, keepdim=True)
                     if len(hmaps_norm) > 0:
                         hmaps_norm[i] = hmaps_norm[i].mean(dim=1, keepdims=True)
                 
-            elif self.pose in ['deform', 'deform_all', 'deform_patch']:
+            elif self.pose in ['deform', 'deform_all', 'deform_patch', 'vit_patch']:
                 # assert self.heatmap_num == 3
-                hmaps = []
+                hmaps = torch.empty(1)
             
             else:
                 raise ValueError()

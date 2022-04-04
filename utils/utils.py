@@ -71,7 +71,7 @@ class ModelManager(object):
         self.best_err = np.ones([4])*1000
         self.model_file_list = []
 
-    def update(self, model_file, err, epoch, lr_scheduler, scheduler_type='plateau'):
+    def update(self, model_file, err, epoch, lr_scheduler, lr_scheduler_D=None, scheduler_type='plateau'):
         self.model_file_list.append((model_file, err))
         self.update_best_err(err, epoch)
         self.sort_model_list()
@@ -83,6 +83,8 @@ class ModelManager(object):
         #update lr
         if scheduler_type == 'plateau':
             lr_scheduler.step(err[0])
+            if lr_scheduler_D is not None:
+                lr_scheduler_D.step(err[0])
         elif 'step' in scheduler_type:
             lr_scheduler.step()
             
@@ -149,7 +151,34 @@ def shuffle_tensor(video, len_video):
     return video.index_select(1, shuffled_idx)
 
 
-def MaskedMean(x, mask, dim=-1):
+def gen_neg_sample(video, way, drop_ratio=0.5):
+    T = video.shape[1]
+    if way == 'shuffle':
+        idx = torch.randperm(T).cuda()
+    elif way in ['multi_shuffle', 'batch_shuffle']:
+        # shuffle for many times until more than 50% idx are differnet
+        label = torch.arange(T)
+        idx = torch.randperm(T)
+        while((idx==label).sum().item() > (1-drop_ratio)*T):
+            idx = torch.randperm(T)
+        idx = idx.cuda()
+        if way == 'batch_shuffle' and video.shape[0] == 2:
+            video = video.index_select(0, torch.tensor([1,0]).cuda())
+    elif way == 'drop':
+        idx = torch.arange(T).cuda()
+        idx = idx[:int(T*(1-drop_ratio))]
+    elif way == 'drop_shuffle':
+        idx = torch.randperm(T).cuda()
+        idx = idx[:int(T*(1-drop_ratio))]
+    elif way == 'drop_shuffle_insert':
+        idx = torch.randperm(T).cuda()
+        idx = idx[:int(T*(1-drop_ratio))]
+        i = torch.randint(high=idx.shape[0], size=(T,))
+        idx = idx[i]
+    return video.index_select(1, idx)
+
+
+def MaskedMean(x, len_video, dim=-1):
     '''
     Parameters
     ----------
@@ -165,6 +194,7 @@ def MaskedMean(x, mask, dim=-1):
     mean
         shape [B,C]
     '''
+    mask = create_mask(len_video)
     x = x.sum(dim)
     x = x.transpose(0,1)  #[C,B]
     mask = (mask<=0).squeeze(1).sum(-1)
@@ -183,9 +213,12 @@ def update_dict(state_dict):
             new_key = key.replace('vi_fea_ext', 'vis_mod')
             new_state_dict[new_key] = state_dict[key]
             new_state_dict.pop(key)
+        elif 'vis_mod.head' in key:
+            print(key, new_state_dict[key].shape)
+            new_state_dict.pop(key)
     
     return new_state_dict
-    
+
 
 def freeze_params(module: nn.Module):
     """
