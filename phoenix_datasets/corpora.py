@@ -257,7 +257,7 @@ class CSLCorpus(PhoenixCorpus):
 class CSLDailyCorpus(PhoenixCorpus):
     def __init__(self, root, max_len):
         self.root = Path(root)
-        self.split_doc = 'split_SI7.txt'
+        self.split_doc = 'split_1.txt'
         self.max_len = max_len
 
     def load_data_frame(self, split):

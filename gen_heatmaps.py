@@ -128,10 +128,16 @@ def main():
     root, valid_loader = create_dataloader(dset_name=args.dataset, split=args.split, bsize=1)
     
     # evaluate on validation set
-    if 'csl' in args.dataset and 'csl-daily' not in args.dataset:
-        path = os.path.join(root[0], 'heatmaps_7', args.split)
-    else:
-        path = os.path.join(root, 'heatmaps_7')
+    # if 'csl' in args.dataset and 'csl-daily' not in args.dataset:
+    #     path = os.path.join(root[0], 'heatmaps_7', args.split)
+    # else:
+    #     path = os.path.join(root, 'heatmaps_7')
+    
+    if args.dataset == '2014T':
+        path = os.path.join('/3tdisk/shared/rzuo/PHOENIX-2014-T', 'heatmaps_hrnet_mpii_9', args.split)
+    elif args.dataset == 'csl-daily':
+        path = os.path.join('/3tdisk/shared/rzuo/CSL-Daily', 'heatmaps_hrnet_mpii_9')
+
     if not os.path.exists(path):
         os.makedirs(path)
     
@@ -145,20 +151,21 @@ def main():
             fname = os.path.join(path, ''.join(video_id))
             
             #inference
+            #7 - thorax, 8 - upper neck
             #9 - head top, 
             #10 - r wrist, 11 - r elbow, 12 - r shoulder, 
             #13 - l shoulder, 14 - l elbow, 15 - l wrist
             heatmaps = model(video)
-            heatmaps = heatmaps.detach().cpu().numpy()[:, 9:, ...]
+            heatmaps = heatmaps.detach().cpu().numpy()[:, 7:, ...]
             # coords = argmax(heatmaps)
             # heatmaps = lin_normalize(heatmaps)
             # print(coords[0,6,:], coords[0,0,:])
             
             # data = np.load(fname+'.npz')
             # heatmaps, finer_coords = data['heatmaps'], data['finer_coords']
-            finer_coords = argmax(heatmaps)
+            # finer_coords = argmax(heatmaps)
             # print(heatmaps.shape, finer_coords.shape, len_video)
-            assert heatmaps.shape == (len_video,7,64,64) and finer_coords.shape == (len_video,7,2)
+            assert heatmaps.shape == (len_video,9,64,64) #and finer_coords.shape == (len_video,7,2)
             # channel_mean += heatmaps.sum(axis=(0,2,3))/(64*64)
             # total_len += len_video
             # vis(heatmaps)
@@ -168,7 +175,7 @@ def main():
             #     dirs = os.path.join('/', *fname.split('/')[:-1])
             #     if not os.path.exists(dirs):
             #         os.makedirs(dirs)
-            np.savez_compressed(fname+'.npz', finer_coords=finer_coords)
+            np.savez_compressed(fname+'.npz', heatmaps=heatmaps)
             
             # visualize
             # coords = finer_coords[:, (0,6,1), :]

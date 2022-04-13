@@ -49,7 +49,7 @@ def parse_args():
     #QK level
     p.add_argument('--qkv_context', nargs='+', type=int, default=[0,0,0])
     
-    p.add_argument('--save_dir', type=str, default='./results')
+    p.add_argument('--save_dir', type=str, default='./results/debug')
     p.add_argument('--from_ckpt', type=int, default=0, choices=[0,1])
     p.add_argument('--max_num_epoch', type=int, default=60)
     p.add_argument('--num_pretrain_epoch', type=int, default=0)
@@ -57,7 +57,7 @@ def parse_args():
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--gpu', type=int, default=1)
     p.add_argument('--setting', type=str, default='full', choices=['full', 'semi_ptf_50', 'semi_10', 'semi_20', 'semi_50', 'semi_100'])
-    p.add_argument('--mode', type=str, default='train', choices=['train', 'test', 'vis_cam', 'vis_att', 'vis_vit', 'vis_fde'])
+    p.add_argument('--mode', type=str, default='train', choices=['train', 'test', 'vis_cam', 'vis_att', 'vis_vit', 'vis_fde', 'vis_hmap_flow'])
     p.add_argument('--test_split', type=str, default='test', choices=['test', 'dev', 'train'])  #maybe we want to test on training set
     
     #SLP
@@ -189,3 +189,6 @@ if __name__ == '__main__':
             if 'pkl' in fname and 'ep' in fname:
                 model_file = os.path.join(args.save_dir, fname)
                 training_manager.vis_fde(model_file)
+    
+    elif args.mode == 'vis_hmap_flow':
+        training_manager.vis_hmap_flow()

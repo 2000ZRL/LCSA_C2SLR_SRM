@@ -134,7 +134,7 @@ class TrainingManager(object):
                           '2014SI7': {'cls': PhoenixSI7VideoTextDataset, 'root': '../../data/phoenix2014-release/phoenix-2014-signerindependent-SI5', 'mean': [0.5400, 0.5295, 0.5225], 'hmap_mean': [0,0,0,0,0,0,0]},
                           'csl1': {'cls': CSLVideoTextDataset, 'root': ('../../data/ustc-csl', 'split_1.txt'), 'mean': [0.5827, 0.5742, 0.5768], 'hmap_mean': [0,0,0,0,0,0,0]},
                           'csl2': {'cls': CSLVideoTextDataset, 'root': ('../../data/ustc-csl', 'split_2.txt'), 'mean': [0.5827, 0.5742, 0.5768], 'hmap_mean': [0,0,0,0,0,0,0]},
-                          'csl-daily': {'cls': CSLDailyVideoTextDataset, 'root': '../../data/csl-daily', 'mean': [0.6891, 0.6680, 0.6409], 'hmap_mean': [0,0,0,0,0,0,0]},
+                          'csl-daily': {'cls': CSLDailyVideoTextDataset, 'root': '../../data/csl-daily', 'mean': [0.6849, 0.6672, 0.6380], 'hmap_mean': [0,0,0,0,0,0,0]},
                           'tvb': {'cls': TVBVideoTextDataset, 'root': '/6tdisk/shared/tvb', 'mean': [0.4874, 0.5383, 0.5366], 'hmap_mean': [0,0,0,0,0,0,0]}}
         if args.mode == 'train':
             self.tb_writer = SummaryWriter(log_dir=args.save_dir + "/tensorboard/")
@@ -795,6 +795,7 @@ class TrainingManager(object):
         # with open(self.args.save_dir+'/predictions.pkl', 'wb') as f:
         #     pickle.dump(self.decoded_dict, f)
 
+
     def vis_fde(self, model_file):
         import cv2
         state_dict = update_dict(t.load(model_file)['mainstream'])
@@ -1075,6 +1076,91 @@ class TrainingManager(object):
                         # plt.savefig(self.args.save_dir+'/vis/'+str(i)+'_'+str(idx)+'_cw.jpg', bbox_inches='tight', pad_inches=0)
         save_sg = t.cat(save_sg, dim=0).numpy()
         np.savez_compressed(self.args.save_dir+'/sg.npz', save_sg)
+
+
+    def vis_hmap_flow(self):
+        import cv2
+        from raft.flow_viz import flow_to_image
+        split = 'test'
+        self.args_data['aug_type'] = 'random_drop'
+        self.args_data['p_drop'] = 0.0
+        self.args_data['resize_shape'] = [256,256]
+        self.args_data['crop_shape'] = [256,256]
+        dset = self.create_dataloader(split=split, bsize=1)
+        if self.args_data['dataset'] == '2014T':
+            base_dir = '/3tdisk/shared/rzuo/PHOENIX-2014-T/'
+        elif self.args_data['dataset'] == 'csl-daily':
+            base_dir = '/3tdisk/shared/rzuo/CSL-Daily'
+        
+        idx = 10
+        for i, batch_data in tqdm(enumerate(dset), desc='[VIS_HMAP_FLOW phase]'):
+            video = t.cat(batch_data['video'])
+            mean = t.tensor(self.dset_dict[self.args_data['dataset']]['mean']).reshape(1,3,1,1)
+            video += mean
+            id = ''.join(batch_data['id'][0])
+            if self.args_data['dataset'] == '2014T':
+                hmap = np.load(os.path.join(base_dir, 'heatmaps_hrnet_mpii_9', split, id+'.npz'))['heatmaps']
+                flow = np.load(os.path.join(base_dir, 'flow_things', split, id+'.npz'))['flow']
+            elif self.args_data['dataset'] == 'csl-daily':
+                hmap = np.load(os.path.join(base_dir, 'heatmaps_hrnet_mpii_9', id+'.npz'))['heatmaps']
+                flow = np.load(os.path.join(base_dir, 'flow_things', id+'.npz'))['flow']
+            
+            # normalize hmap
+            min = hmap.min(axis=(-2,-1), keepdims=True)
+            max = hmap.max(axis=(-2,-1), keepdims=True)
+            hmap = (hmap - min) / (max - min + 1e-6)
+
+            img1 = np.uint8(255*video[idx, ...].detach().cpu().numpy()).transpose(1,2,0)
+            img2 = np.uint8(255*video[idx+1, ...].detach().cpu().numpy()).transpose(1,2,0)
+            hmap = np.uint8(255*hmap[idx, ...])
+            # flow = flow[idx, ...]
+
+            # vis hmaps
+            pos = ['thorax', 'upper neck', 'head top', 'r wrist', 'r elbow', 'r shoulder', 'l shoulder', 'l elbow', 'l wrist']
+            fig, axes = plt.subplots(2,5)
+            for j in range(10):
+                if j==0:
+                    axes[0][0].imshow(img1)
+                    axes[0][0].set_title('img')
+                else:
+                    co_hmap = cv2.applyColorMap(hmap[j-1], cv2.COLORMAP_JET)
+                    co_hmap = cv2.resize(co_hmap, tuple(self.args_data['resize_shape']))[..., ::-1]
+                    axes[j//5][j%5].imshow(co_hmap)
+                    axes[j//5][j%5].set_title(pos[j-1])
+                axes[j//5][j%5].set_xticks([])
+                axes[j//5][j%5].set_yticks([])
+            plt.savefig('{:s}_hmap.jpg'.format(self.args_data['dataset']))
+
+            # vis optical flow
+            fig, axes = plt.subplots(2,5)
+            for j in range(5):
+                img = np.uint8(255*video[idx+j*10, ...].detach().cpu().numpy()).transpose(1,2,0)
+                axes[0][j].imshow(img)
+                axes[0][j].set_xticks([])
+                axes[0][j].set_yticks([])
+                flow_img = flow_to_image(flow[idx+j*10,...].transpose(1,2,0))
+                axes[1][j].imshow(flow_img)
+                axes[1][j].set_xticks([])
+                axes[1][j].set_yticks([])
+            # axes[0].imshow(img1)
+            # axes[0].set_title('img1')
+            # axes[0].set_xticks([])
+            # axes[0].set_yticks([])
+
+            # axes[1].imshow(img2)
+            # axes[1].set_title('img2')
+            # axes[1].set_xticks([])
+            # axes[1].set_yticks([])
+
+            # axes[2].imshow(flow_img)
+            # axes[2].set_title('flow')
+            # axes[2].set_xticks([])
+            # axes[2].set_yticks([])
+            plt.savefig('{:s}_flow.jpg'.format(self.args_data['dataset']))
+
+            if i==0:
+                break
+
 
 # def vis_cam(self, model_file):
     #     import cv2

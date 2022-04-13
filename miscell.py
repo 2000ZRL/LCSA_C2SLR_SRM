@@ -375,7 +375,7 @@ def k_means(x, center, max_steps=10):
 # M = np.array([[0,1,1,0], [0,0,0,0], [0,0,0,1], [0,0,1,0]], dtype=np.float32)
 # HITS(M, 50)
 
-name = 'S005880_P0000_T00'
+name = 'S003181_P0001_T00'
 dir = '../../data/csl-daily/'+name
 image=cv2.imread(dir+'/000000.jpg')
 height=image.shape[0]
@@ -536,8 +536,8 @@ for f in files:
 # for l in lines:
 #     if 'SUB' in l:
 #         num_sub += 1
-#         # SUB.append(l.split(' ')[1])
-#         SUB.append(set(l.strip().split(' ')[1:]))
+#         SUB.append(l.split(' ')[1])
+#         # SUB.append(set(l.strip().split(' ')[1:]))
 #     elif 'DEL' in l:
 #         num_del += 1
 #         DEL.append(l.split(' ')[1])
@@ -572,12 +572,14 @@ for f in files:
 # gls = set(SUB)
 # train_freq = []
 # test_err_rate = []
+# freq = {}
 # for g in gls:
 #     num = 0
 #     for s in SUB:
 #         if s == g:
 #             num += 1
 #     test_err_rate.append(num / gls_count_test[g])
+#     freq[g] = num / gls_count_test[g]
 #     try:
 #         train_freq.append(gls_count_train[g])
 #     except:
@@ -605,6 +607,7 @@ for f in files:
 #     if g.isdigit():
 #         digit_tr.append(gls_count_train[g])
 #         digit_test.append(freq[g])
+#         print(g, gls_count_train[g], freq[g])
 # digit_tr = np.array(digit_tr)
 # digit_test = np.array(digit_test)
 # plt.scatter(digit_tr, digit_test)

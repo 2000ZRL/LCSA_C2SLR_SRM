@@ -32,8 +32,13 @@ ctm.close()
 
 for stmline in stmDict: #follow the stm order
     corpusid=stmline[0]
-    for l in ctmToOrder[corpusid]:
-        ctmDict.append(l)
+    try:
+        # Fix the bug of the original scripts.
+        # Some videos are quite short, then the predictions may be only one gloss which may be REMOVED by the post-processing script.
+        for l in ctmToOrder[corpusid]:
+            ctmDict.append(l)
+    except:
+        continue
 
 #no everything is sorted and we can proceed
 stm=open(stmFile,"r")
