@@ -148,8 +148,8 @@ class TrainingManager(object):
                                 self.args_opt['lr'], self.args_opt['betas'], self.args_opt['weight_decay'])
         elif self.args_opt['name'] == 'sgd':
             return t.optim.SGD(model.parameters(), self.args_opt['lr'], self.args_opt['momentum'], self.args_opt['weight_decay'])
-            
-            
+    
+    
     def _create_lr_scheduler(self, optimizer):
         if self.args_lr_sch['name'] == 'plateau':
             return t.optim.lr_scheduler.ReduceLROnPlateau(
@@ -1081,6 +1081,30 @@ class TrainingManager(object):
     def vis_hmap_flow(self):
         import cv2
         from raft.flow_viz import flow_to_image
+
+        def gen_gaussian_hmap(raw_hmap, H, gamma=14):
+            # raw hmap: [T,9,raw_h,raw_w]
+            # H: the output height you want. assume H=W
+            # gamma: hyper-param, control the width of gaussian, larger gamma, SMALLER gaussian
+            T, hmap_num, raw_h, raw_w = raw_hmap.shape
+            assert hmap_num == 9
+
+            # generate 2d coords
+            raw_hmap = t.tensor(raw_hmap).flatten(-2)  #[T,9,HW]
+            coords_1d = t.argmax(raw_hmap, dim=-1, keepdim=True)  #[T,9,1]
+            coords_x =  t.floor_divide(coords_1d, raw_w) / (raw_h-1)
+            coords_y = t.remainder(coords_1d, raw_w) / (raw_w-1)
+            coords = t.cat([coords_x, coords_y], dim=-1)  #[T,9,2]
+
+            # generate gaussian hmap
+            sigma = H/gamma
+            x, y = t.meshgrid(t.arange(H), t.arange(H))
+            grid = t.stack([x,y], dim=2)  #[H,H,2]
+            grid = grid.repeat((T,1,1,1)).permute(1,2,0,3)  #[H,H,T,2]
+            hmap = [t.exp(-((grid-(c.squeeze()*(H-1)))**2).sum(dim=-1) / (2*sigma**2)) for c in coords.chunk(hmap_num, dim=1)]  #[H,H,T]
+            hmap = t.stack(hmap, dim=0).permute(3,0,1,2)  #[T,9,H,H]
+            return hmap
+        
         split = 'test'
         self.args_data['aug_type'] = 'random_drop'
         self.args_data['p_drop'] = 0.0
@@ -1106,9 +1130,13 @@ class TrainingManager(object):
                 flow = np.load(os.path.join(base_dir, 'flow_things', id+'.npz'))['flow']
             
             # normalize hmap
-            min = hmap.min(axis=(-2,-1), keepdims=True)
-            max = hmap.max(axis=(-2,-1), keepdims=True)
-            hmap = (hmap - min) / (max - min + 1e-6)
+            # min = hmap.min(axis=(-2,-1), keepdims=True)
+            # max = hmap.max(axis=(-2,-1), keepdims=True)
+            # hmap = (hmap - min) / (max - min + 1e-6)
+            gau_hmap = gen_gaussian_hmap(hmap, 256)
+            gau_hmap = gau_hmap.amax(dim=1)[idx, ...]
+            gau_hmap = np.uint8(255*gau_hmap)
+            gau_hmap = cv2.applyColorMap(gau_hmap, cv2.COLORMAP_JET)[..., ::-1]
 
             img1 = np.uint8(255*video[idx, ...].detach().cpu().numpy()).transpose(1,2,0)
             img2 = np.uint8(255*video[idx+1, ...].detach().cpu().numpy()).transpose(1,2,0)
@@ -1117,31 +1145,35 @@ class TrainingManager(object):
 
             # vis hmaps
             pos = ['thorax', 'upper neck', 'head top', 'r wrist', 'r elbow', 'r shoulder', 'l shoulder', 'l elbow', 'l wrist']
-            fig, axes = plt.subplots(2,5)
-            for j in range(10):
-                if j==0:
-                    axes[0][0].imshow(img1)
-                    axes[0][0].set_title('img')
-                else:
-                    co_hmap = cv2.applyColorMap(hmap[j-1], cv2.COLORMAP_JET)
-                    co_hmap = cv2.resize(co_hmap, tuple(self.args_data['resize_shape']))[..., ::-1]
-                    axes[j//5][j%5].imshow(co_hmap)
-                    axes[j//5][j%5].set_title(pos[j-1])
-                axes[j//5][j%5].set_xticks([])
-                axes[j//5][j%5].set_yticks([])
-            plt.savefig('{:s}_hmap.jpg'.format(self.args_data['dataset']))
+            # fig, axes = plt.subplots(2,5)
+            # for j in range(10):
+            #     if j==0:
+            #         axes[0][0].imshow(img1)
+            #         axes[0][0].set_title('img')
+            #     else:
+            #         co_hmap = cv2.applyColorMap(hmap[j-1], cv2.COLORMAP_JET)
+            #         co_hmap = cv2.resize(co_hmap, tuple(self.args_data['resize_shape']))[..., ::-1]
+            #         axes[j//5][j%5].imshow(co_hmap)
+            #         axes[j//5][j%5].set_title(pos[j-1])
+            #     axes[j//5][j%5].set_xticks([])
+            #     axes[j//5][j%5].set_yticks([])
+            plt.figure()
+            img_show = np.uint8(0.5*img1 + 0.5*gau_hmap)
+            plt.imshow(img_show)
+            plt.axis("off")
+            plt.savefig('{:s}_{:d}_hmap_inone.jpg'.format(self.args_data['dataset'], i))
 
             # vis optical flow
-            fig, axes = plt.subplots(2,5)
-            for j in range(5):
-                img = np.uint8(255*video[idx+j*10, ...].detach().cpu().numpy()).transpose(1,2,0)
-                axes[0][j].imshow(img)
-                axes[0][j].set_xticks([])
-                axes[0][j].set_yticks([])
-                flow_img = flow_to_image(flow[idx+j*10,...].transpose(1,2,0))
-                axes[1][j].imshow(flow_img)
-                axes[1][j].set_xticks([])
-                axes[1][j].set_yticks([])
+            # fig, axes = plt.subplots(2,5)
+            # for j in range(5):
+            #     img = np.uint8(255*video[idx+j*10, ...].detach().cpu().numpy()).transpose(1,2,0)
+            #     axes[0][j].imshow(img)
+            #     axes[0][j].set_xticks([])
+            #     axes[0][j].set_yticks([])
+            #     flow_img = flow_to_image(flow[idx+j*10,...].transpose(1,2,0))
+            #     axes[1][j].imshow(flow_img)
+            #     axes[1][j].set_xticks([])
+            #     axes[1][j].set_yticks([])
             # axes[0].imshow(img1)
             # axes[0].set_title('img1')
             # axes[0].set_xticks([])
@@ -1156,9 +1188,9 @@ class TrainingManager(object):
             # axes[2].set_title('flow')
             # axes[2].set_xticks([])
             # axes[2].set_yticks([])
-            plt.savefig('{:s}_flow.jpg'.format(self.args_data['dataset']))
+            # plt.savefig('{:s}_flow.jpg'.format(self.args_data['dataset']))
 
-            if i==0:
+            if i not in [0,1,2,3,4]:
                 break
 
 

@@ -9,10 +9,11 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-import os, pickle
+import os, pickle, cv2
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 from tqdm import tqdm
 from utils.metric import get_wer_delsubins
+from gen_gaussian_hmap import gen_gaussian_hmap_hrnet_wb
 
 # root = "../../data/phoenix2014-release/phoenix-2014-multisigner"
 # dtrain = PhoenixVideoTextDataset(
@@ -42,7 +43,7 @@ from utils.metric import get_wer_delsubins
 
 
 
-args = {'dataset': '2014', 'aug_type': 'seg_and_drop', 'max_len': 140, 'p_drop': 0.4, 'resize_shape': [256,256], 'crop_shape': [256,256]}
+args = {'dataset': '2014T', 'aug_type': 'random_drop', 'max_len': 999, 'p_drop': 0, 'resize_shape': [256,256], 'crop_shape': [256,256]}
 # dtrain = CSLVideoTextDataset(args,
 #                             root=('/2tssd/rzuo/data/ustc-csl', 'split_2.txt'),
 #                             split='test',
@@ -55,9 +56,10 @@ args = {'dataset': '2014', 'aug_type': 'seg_and_drop', 'max_len': 140, 'p_drop':
 #                                 normalized_mean=[0,0,0],
 #                                 use_random=False,
 #                                 )
-dtrain = PhoenixVideoTextDataset(args,
-                                root='../../data/phoenix2014-release/phoenix-2014-multisigner',
-                                split='test',
+split = 'dev'
+dtrain = PhoenixTVideoTextDataset(args,
+                                root='../../data/PHOENIX-2014-T-release-v3/PHOENIX-2014-T',
+                                split=split,
                                 normalized_mean=[0,0,0],
                                 use_random=False,
                                 )
@@ -120,7 +122,7 @@ ids = []
 gloss = []
 gls_count = {}
 for i, batch in tqdm(enumerate(dl)):
-    video = batch['video']  #a list of batch_size videos
+    video = batch['video'][0]  #a list of batch_size videos
     label = batch['label']  #a tensor
     len_video = batch['len_video']  #a tensor of length of each video
     len_label = batch['len_label']  #a tensor of length of each label
@@ -135,6 +137,22 @@ for i, batch in tqdm(enumerate(dl)):
     # frame_mean[:, i] = t.mean(video, dim=-1).numpy()
     # for name in video_id:
     #     ids.append(''.join(name))
+
+    # if i==0:
+    data = np.load("/3tdisk/shared/rzuo/PHOENIX-2014-T/keypoints_hrnet_dark_coco_wholebody/{:s}/{:s}.npz".format(split, video_id))
+    coords = data['keypoints']
+    assert coords.shape == (len_video, 133, 3)
+    zeros = np.zeros(3)
+    if (coords==zeros).any():
+        print(video_id)
+
+    # idx = 20
+    # gau_hmap = gen_gaussian_hmap_hrnet_wb(coords, (260,210), (256,256), gamma=200, flags=[True,True,True,True])
+    # gau_hmap = gau_hmap.amax(dim=1)[idx]
+    # gau_hmap = cv2.applyColorMap(np.uint8(255*gau_hmap), cv2.COLORMAP_JET)
+    # img = np.uint8(255*video[idx]).transpose(1,2,0)[..., ::-1]
+    # img = cv2.resize(img, (256,256))
+    # cv2.imwrite('temp.jpg', np.uint8(0.5*img+0.5*gau_hmap))
 
     # for l in label:
     #     if vocab[l] not in gls_count.keys():
