@@ -2,7 +2,7 @@
 # https://github.com/kennymckormick/pyskl/blob/main/tools/data/custom_2d_skeleton.py
 import argparse
 import os
-from unittest.mock import NonCallableMagicMock; os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+from unittest.mock import NonCallableMagicMock; os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import os.path as osp
 from phoenix_datasets import PhoenixVideoTextDataset, PhoenixTVideoTextDataset, CSLDailyVideoTextDataset
 from torch.utils.data import DataLoader, sampler
@@ -199,7 +199,7 @@ def main():
     #     os.makedirs(args.tmpdir, exist_ok=True)
     # dist.barrier()
     len_dset, _ = create_dataloader(dset_name=args.dataset, split=args.split, bsize=1)
-    train_idx = np.arange(len_dset)[len_dset//2:]
+    # train_idx = np.arange(len_dset)[len_dset//2:]
     # spler = sampler.SequentialSampler(train_idx[:len_dset//2])
 
     _, valid_loader = create_dataloader(dset_name=args.dataset, split=args.split, bsize=1, sampler=None)
@@ -214,7 +214,7 @@ def main():
         h, w = 260, 210
     if args.dataset == '2014':
         path = osp.join('/3tdisk/shared/rzuo/PHOENIX-2014', 'keypoints_hrnet_dark_coco_wholebody', args.split)
-        sample_intv = 100
+        sample_intv = 999
         h, w = 260, 210
     elif args.dataset == 'csl-daily':
         path = osp.join('/3tdisk/shared/rzuo/CSL-Daily', 'keypoints_hrnet_dark_coco_wholebody')
@@ -224,8 +224,6 @@ def main():
         os.makedirs(path)
 
     for k, batch_data in tqdm(enumerate(valid_loader), desc='[Generating keypoints of {:s} of {:s}]'.format(args.split, args.dataset)):
-        if k not in train_idx:
-            continue
 
         len_video = batch_data['len_video'][0]
         video_id = batch_data['id'][0]

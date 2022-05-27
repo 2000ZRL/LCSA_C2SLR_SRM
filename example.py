@@ -43,7 +43,7 @@ from gen_gaussian_hmap import gen_gaussian_hmap_hrnet_wb
 
 
 
-args = {'dataset': '2014T', 'aug_type': 'random_drop', 'max_len': 999, 'p_drop': 0, 'resize_shape': [256,256], 'crop_shape': [256,256]}
+args = {'dataset': 'csl-daily', 'aug_type': 'random_drop', 'max_len': 999, 'p_drop': 0, 'resize_shape': [256,256], 'crop_shape': [256,256]}
 # dtrain = CSLVideoTextDataset(args,
 #                             root=('/2tssd/rzuo/data/ustc-csl', 'split_2.txt'),
 #                             split='test',
@@ -56,9 +56,9 @@ args = {'dataset': '2014T', 'aug_type': 'random_drop', 'max_len': 999, 'p_drop':
 #                                 normalized_mean=[0,0,0],
 #                                 use_random=False,
 #                                 )
-split = 'dev'
-dtrain = PhoenixTVideoTextDataset(args,
-                                root='../../data/PHOENIX-2014-T-release-v3/PHOENIX-2014-T',
+split = 'test'
+dtrain = CSLDailyVideoTextDataset(args,
+                                root='../../data/csl-daily',
                                 split=split,
                                 normalized_mean=[0,0,0],
                                 use_random=False,
@@ -108,15 +108,15 @@ num_gls = np.zeros(len(dtrain)//bsize, dtype=np.float64)
 frame_mean = np.zeros((3, len(dtrain)//bsize), dtype=np.float64)
 dl = DataLoader(dtrain, batch_size=bsize, collate_fn=dtrain.collate_fn, num_workers=20, shuffle=False)
 
-f1 = 'results/CVPR22_C2SLR/vgg11_rpe_gau_D6.3_cas_bef_san/predictions.pkl'
-f2 = 'results/CVPR22_C2SLR/vgg11_cas_bef_san_cbam4_nochannel_maxsoftmax__superatt/predictions.pkl'
-f3 = 'results/CVPR22_C2SLR/vgg11_cbs_cbam4_noch_maxsoft_superatt_sc_tfmer_ape_dtcn_batch/predictions.pkl'
-with open(f1, 'rb') as f:
-    d1 = pickle.load(f)
-with open(f2, 'rb') as f:
-    d2 = pickle.load(f)
-with open(f3, 'rb') as f:
-    d3 = pickle.load(f)
+# f1 = 'results/CVPR22_C2SLR/vgg11_rpe_gau_D6.3_cas_bef_san/predictions.pkl'
+# f2 = 'results/CVPR22_C2SLR/vgg11_cas_bef_san_cbam4_nochannel_maxsoftmax__superatt/predictions.pkl'
+# f3 = 'results/CVPR22_C2SLR/vgg11_cbs_cbam4_noch_maxsoft_superatt_sc_tfmer_ape_dtcn_batch/predictions.pkl'
+# with open(f1, 'rb') as f:
+#     d1 = pickle.load(f)
+# with open(f2, 'rb') as f:
+#     d2 = pickle.load(f)
+# with open(f3, 'rb') as f:
+#     d3 = pickle.load(f)
 
 ids = []
 gloss = []
@@ -138,22 +138,23 @@ for i, batch in tqdm(enumerate(dl)):
     # for name in video_id:
     #     ids.append(''.join(name))
 
-    # if i==0:
-    data = np.load("/3tdisk/shared/rzuo/PHOENIX-2014-T/keypoints_hrnet_dark_coco_wholebody/{:s}/{:s}.npz".format(split, video_id))
+    # if i==13000:
+    data = np.load("/3tdisk/shared/rzuo/CSL-Daily/keypoints_hrnet_dark_coco_wholebody/{:s}.npz".format(video_id))
     coords = data['keypoints']
     assert coords.shape == (len_video, 133, 3)
     zeros = np.zeros(3)
     if (coords==zeros).any():
         print(video_id)
 
-    # idx = 20
-    # gau_hmap = gen_gaussian_hmap_hrnet_wb(coords, (260,210), (256,256), gamma=200, flags=[True,True,True,True])
-    # gau_hmap = gau_hmap.amax(dim=1)[idx]
-    # gau_hmap = cv2.applyColorMap(np.uint8(255*gau_hmap), cv2.COLORMAP_JET)
-    # img = np.uint8(255*video[idx]).transpose(1,2,0)[..., ::-1]
-    # img = cv2.resize(img, (256,256))
-    # cv2.imwrite('temp.jpg', np.uint8(0.5*img+0.5*gau_hmap))
-
+    # if i==14000:
+    #     idx = 20
+    #     gau_hmap = gen_gaussian_hmap_hrnet_wb(coords, (512,512), (256,256), gamma=200, flags=[True,True,True,True])
+    #     gau_hmap = gau_hmap.amax(dim=1)[idx]
+    #     gau_hmap = cv2.applyColorMap(np.uint8(255*gau_hmap), cv2.COLORMAP_JET)
+    #     img = np.uint8(255*video[idx]).transpose(1,2,0)[..., ::-1]
+    #     img = cv2.resize(img, (256,256))
+    #     cv2.imwrite('temp.jpg', np.uint8(0.5*img+0.5*gau_hmap))
+        # break
     # for l in label:
     #     if vocab[l] not in gls_count.keys():
     #         gls_count[vocab[l]] = 0
