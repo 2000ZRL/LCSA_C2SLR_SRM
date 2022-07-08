@@ -43,7 +43,7 @@ from gen_gaussian_hmap import gen_gaussian_hmap_hrnet_wb
 
 
 
-args = {'dataset': 'csl-daily', 'aug_type': 'random_drop', 'max_len': 999, 'p_drop': 0, 'resize_shape': [256,256], 'crop_shape': [256,256]}
+args = {'dataset': 'tvb', 'aug_type': 'seg_and_drop', 'max_len': 140, 'p_drop': 0.3, 'resize_shape': [256,256], 'crop_shape': [256,256]}
 # dtrain = CSLVideoTextDataset(args,
 #                             root=('/2tssd/rzuo/data/ustc-csl', 'split_2.txt'),
 #                             split='test',
@@ -56,14 +56,14 @@ args = {'dataset': 'csl-daily', 'aug_type': 'random_drop', 'max_len': 999, 'p_dr
 #                                 normalized_mean=[0,0,0],
 #                                 use_random=False,
 #                                 )
-split = 'test'
-dtrain = CSLDailyVideoTextDataset(args,
-                                root='../../data/csl-daily',
-                                split=split,
-                                normalized_mean=[0,0,0],
-                                use_random=False,
-                                )
-# dtrain = TVBVideoTextDataset(args, root='/6tdisk/shared/tvb', split='train', normalized_mean=[0,0,0], use_random=False)
+# split = 'test'
+# dtrain = CSLDailyVideoTextDataset(args,
+#                                 root='../../data/csl-daily',
+#                                 split=split,
+#                                 normalized_mean=[0,0,0],
+#                                 use_random=False,
+#                                 )
+dtrain = TVBVideoTextDataset(args, root='/6tdisk/shared/tvb', split='train', normalized_mean=[0,0,0], use_random=False)
 # dtrain = PhoenixSI7VideoTextDataset(args, root='../../data/phoenix2014-release/phoenix-2014-signerindependent-SI5', split='train', normalized_mean=[0,0,0], use_random=False)
 
 # root='/2tssd/rzuo/data/phoenix2014-release/phoenix-2014-signerindependent-SI5'
@@ -139,12 +139,12 @@ for i, batch in tqdm(enumerate(dl)):
     #     ids.append(''.join(name))
 
     # if i==13000:
-    data = np.load("/3tdisk/shared/rzuo/CSL-Daily/keypoints_hrnet_dark_coco_wholebody/{:s}.npz".format(video_id))
-    coords = data['keypoints']
-    assert coords.shape == (len_video, 133, 3)
-    zeros = np.zeros(3)
-    if (coords==zeros).any():
-        print(video_id)
+    # data = np.load("/3tdisk/shared/rzuo/CSL-Daily/keypoints_hrnet_dark_coco_wholebody/{:s}.npz".format(video_id))
+    # coords = data['keypoints']
+    # assert coords.shape == (len_video, 133, 3)
+    # zeros = np.zeros(3)
+    # if (coords==zeros).any():
+    #     print(video_id)
 
     # if i==14000:
     #     idx = 20

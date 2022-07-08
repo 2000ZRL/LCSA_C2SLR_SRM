@@ -135,7 +135,7 @@ class TrainingManager(object):
                           'csl1': {'cls': CSLVideoTextDataset, 'root': ('../../data/ustc-csl', 'split_1.txt'), 'mean': [0.5827, 0.5742, 0.5768], 'hmap_mean': [0,0,0,0,0,0,0]},
                           'csl2': {'cls': CSLVideoTextDataset, 'root': ('../../data/ustc-csl', 'split_2.txt'), 'mean': [0.5827, 0.5742, 0.5768], 'hmap_mean': [0,0,0,0,0,0,0]},
                           'csl-daily': {'cls': CSLDailyVideoTextDataset, 'root': '../../data/csl-daily', 'mean': [0.6849, 0.6672, 0.6380], 'hmap_mean': [0,0,0,0,0,0,0]},
-                          'tvb': {'cls': TVBVideoTextDataset, 'root': '/6tdisk/shared/tvb', 'mean': [0.4874, 0.5383, 0.5366], 'hmap_mean': [0,0,0,0,0,0,0]}}
+                          'tvb': {'cls': TVBVideoTextDataset, 'root': '/6tdisk/shared/tvb', 'mean': [0.4878, 0.5392, 0.5371], 'hmap_mean': [0,0,0,0,0,0,0]}}
         if args.mode == 'train':
             self.tb_writer = SummaryWriter(log_dir=args.save_dir + "/tensorboard/")
     

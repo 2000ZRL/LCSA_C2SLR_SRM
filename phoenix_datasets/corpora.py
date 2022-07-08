@@ -178,7 +178,7 @@ class TVBCorpus(PhoenixCorpus):
     def load_data_frame(self, split) -> pd.DataFrame:
         if split == 'dev':
             split = 'val'
-        path = self.root / "split" / "v4.1" / f"{split}.csv"
+        path = self.root / "split" / "v5.1" / f"{split}.csv"
         df = pd.read_csv(path, sep="|")
         df = df.dropna()
 
@@ -195,13 +195,14 @@ class TVBCorpus(PhoenixCorpus):
         glosses = glosses.str.replace(r" +", " ", regex=True)
         glosses = glosses.str.split("[ +]")
         df["glosses"] = glosses
+        # df = df[df['glosses'] != ""]
         df = df.rename(columns={"glosses": "annotation"})
         # df["id"] = df["folder"].apply(lambda s: s.replace("/", "-"))
         df["folder"] = df["signer"] = df["id"]
         return df
     
     def get_frames(self, sample, type):
-        frames = (self.root / "grouped" / "sign" / "sign" / sample["folder"]).glob("*.jpg")
+        frames = (self.root / "grouped" / "sign" / sample["folder"]).glob("*.jpg")
         return sorted(frames)
 
     # def gloss_table(self):
