@@ -178,7 +178,7 @@ class TVBCorpus(PhoenixCorpus):
     def load_data_frame(self, split) -> pd.DataFrame:
         if split == 'dev':
             split = 'val'
-        path = self.root / "split" / "v5.1" / f"{split}.csv"
+        path = self.root / "split" / "v5.3" / f"{split}.csv"
         df = pd.read_csv(path, sep="|")
         df = df.dropna()
 
@@ -187,12 +187,12 @@ class TVBCorpus(PhoenixCorpus):
         df["words"] = words
 
         glosses = df["glosses"].apply(lambda s: unicodedata.normalize("NFKC", s))
-        glosses = glosses.str.replace(r"(\d+)([^ ]+)", r"\g<1> \g<2>", regex=True)
-        glosses = glosses.str.replace("[#%*!@]", "", regex=True)
-        glosses = glosses.str.replace("BAD-SEGMENT", "", regex=False)
-        glosses = glosses.str.replace("MUMBLE", "", regex=False)
-        glosses = glosses.str.replace(r"\(.+?\)", "", regex=True)
-        glosses = glosses.str.replace(r" +", " ", regex=True)
+        # glosses = glosses.str.replace(r"(\d+)([^ ]+)", r"\g<1> \g<2>", regex=True)
+        # glosses = glosses.str.replace("[#%*!@]", "", regex=True)
+        # glosses = glosses.str.replace("BAD-SEGMENT", "", regex=False)
+        # glosses = glosses.str.replace("MUMBLE", "", regex=False)
+        # glosses = glosses.str.replace(r"\(.+?\)", "", regex=True)
+        # glosses = glosses.str.replace(r" +", " ", regex=True)
         glosses = glosses.str.split("[ +]")
         df["glosses"] = glosses
         # df = df[df['glosses'] != ""]

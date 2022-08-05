@@ -7,6 +7,7 @@ from jiwer import compute_measures
 
 
 def string_diff(a, b):
+    print(b)
     matcher = difflib.SequenceMatcher(None, a, b)
 
     def process_tag(tag, i1, i2, j1, j2):
@@ -48,6 +49,7 @@ if __name__ == "__main__":
     hyp = pd.read_csv(args.hyp, keep_default_na=False, names=["id", "hypothesis"])
 
     df = pd.merge(df, hyp, on="id", how="left")
+    df = df.dropna()
 
     df["diff"] = df.apply(
         lambda row: string_diff(

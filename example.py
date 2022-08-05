@@ -69,14 +69,11 @@ dtrain = TVBVideoTextDataset(args, root='/6tdisk/shared/tvb', split='train', nor
 # root='/2tssd/rzuo/data/phoenix2014-release/phoenix-2014-signerindependent-SI5'
 # dtrain = PhoenixSIVideoTextDataset(
 #     # your path to this folder, download it from official website first.
+#     args,
 #     root=root,
 #     split="train",
-#     resize_shape=[256,256],
-#     crop_shape=[224,224],
 #     normalized_mean=[0,0,0],
-#     aug_type='random_drop',
-#     p_drop=0.5,
-#     use_random=True
+#     use_random=False
 # )
 
 # dtrain = CFSWVideoTextDataset(root='/2tssd/rzuo/data/ChicagoFSWild',

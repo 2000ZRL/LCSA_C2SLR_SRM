@@ -771,7 +771,7 @@ class TrainingManager(object):
         if self.args_data['dataset'] == 'tvb' and self.args.mode == 'test':
             import pandas as pd
             df = pd.DataFrame(list(self.decoded_dict.items()), columns=['id', 'hypothesis'])
-            df['hypothesis'] = df['hypothesis'].apply(lambda x: ''.join(self.vocab[i] for i in x))
+            df['hypothesis'] = df['hypothesis'].apply(lambda x: ' '.join(self.vocab[i] for i in x))
             fname = self.args.save_dir + '/' + str(split) + '_hyp.csv'
             df.to_csv(fname, index=False, sep=',')
             
