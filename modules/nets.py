@@ -9,12 +9,11 @@ Nets: VGGNet-11, ResNet-18, GoogLeNet, AlexNet
 import torch as t
 import torch.nn as nn
 from torch.nn import functional as F
-from modules.dcn import DCN_v1, DCN_v2
-from modules.coord_att import CoordAtt
 from modules.cbam import CBAM
 from modules.fde import FeaDis
 from utils.utils import freeze_params
 import math
+# from torchvision.models import mobilenet_v3_large, mobilenet_v3_small
 
 
 #---------------------------------------------VGGNet----------------------------------------------
@@ -55,11 +54,11 @@ class VGG11(nn.Module):
             self.fde_mod = FeaDis(num_channels=512, num_signers=kwargs.pop('num_signers', 8), fde_type=self.fde_type)
     
     def make_layers(self):
-        if self.dcn_ver == 'v1':
-            DCN = DCN_v1
-        elif self.dcn_ver == 'v2':
-            DCN = DCN_v2
-        
+        # if self.dcn_ver == 'v1':
+        #     DCN = DCN_v1
+        # elif self.dcn_ver == 'v2':
+        #     DCN = DCN_v2
+        DCN = None
         layers = []
         in_channels = 3
         num_conv, num_pool = 0, 0
@@ -76,8 +75,6 @@ class VGG11(nn.Module):
                     layers.extend([conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)])
                 else:
                     layers.extend([conv2d, nn.ReLU(inplace=True)])
-                if self.spatial_att == 'ca' and num_conv in self.att_idx_lst:
-                    layers.append(CoordAtt(v, v))
                 if self.spatial_att == 'cbam' and num_conv in self.att_idx_lst:
                     layers.append(CBAM(v, 16, no_channel=self.cbam_no_channel, channel_pool=self.cbam_pool))
                 in_channels = v
@@ -99,14 +96,7 @@ class VGG11(nn.Module):
         num_conv_block = 0
         sg_sg2_cam = [None,None,None]; cg_ch_cam = [None,None]; signer_emb = signer_logits = None
         for layer in self.features:
-            if isinstance(layer, DCN_v1) or isinstance(layer, DCN_v2):
-                offset, mask, x = layer(x, heatmap)
-                offset_lst.append(offset)
-                mask_lst.append(mask)
-            elif isinstance(layer, CoordAtt):
-                mask, x = layer(x)
-                mask_lst.append(mask)
-            elif isinstance(layer, CBAM):
+            if isinstance(layer, CBAM):
                 channel_weights, gates, x = layer(x)
                 _, mask = gates
                 mask_lst.append(mask)
@@ -195,17 +185,15 @@ class BasicBlock(nn.Module):
                                stride=stride, padding=1, bias=False)
         self.bn1 = norm_layer(outchannels)
         self.relu = nn.ReLU(inplace=True)
-        if spatial_att == 'dcn':
-            self.conv2 = DCN_v2(outchannels, outchannels, kernel_size=3, stride=1, padding=1, bias=False)
-        else:
-            self.conv2 = nn.Conv2d(in_channels=outchannels, out_channels=outchannels, kernel_size=3,
+        # if spatial_att == 'dcn':
+        #     self.conv2 = DCN_v2(outchannels, outchannels, kernel_size=3, stride=1, padding=1, bias=False)
+        # else:
+        self.conv2 = nn.Conv2d(in_channels=outchannels, out_channels=outchannels, kernel_size=3,
                                    stride=1, padding=1, bias=False)
         self.bn2 = norm_layer(outchannels)
         
         if spatial_att == 'cbam':
             self.att_mod = CBAM(outchannels, 16, no_channel=cbam_no_channel, channel_pool=cbam_pool)
-        elif spatial_att == 'ca':
-            self.att_mod = CoordAtt(outchannels, outchannels)
         self.downsample = downsample
         self.stride = stride
         self.spatial_att = spatial_att
@@ -367,8 +355,6 @@ class CNN(nn.Module):
                     layers.extend([conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)])
                 else:
                     layers.extend([conv2d, nn.ReLU(inplace=True)])
-                if self.spatial_att == 'ca' and num_conv in self.att_idx_lst:
-                    layers.append(CoordAtt(v, v))
                 if self.spatial_att == 'cbam' and num_conv in self.att_idx_lst:
                     layers.append(CBAM(v, 16, no_channel=self.cbam_no_channel, channel_pool=self.cbam_pool))
                 in_channels = v
@@ -382,10 +368,7 @@ class CNN(nn.Module):
         offset_lst = []
         mask_lst = []
         for layer in self.features:
-            if isinstance(layer, CoordAtt):
-                mask, x = layer(x)
-                mask_lst.append(mask)
-            elif isinstance(layer, CBAM):
+            if isinstance(layer, CBAM):
                 channel_weights, mask, x = layer(x)
                 mask_lst.append(mask)
                 offset_lst.append(channel_weights)
@@ -442,10 +425,8 @@ class InvertedResidual(nn.Module):
 
         hidden_dim = round(inp * expand_ratio)
         self.identity = stride == 1 and inp == oup
-        
-        if spatial_att == 'ca':
-            att_mod = CoordAtt(hidden_dim, hidden_dim)
-        elif spatial_att == 'cbam':
+
+        if spatial_att == 'cbam':
             att_mod = CBAM(hidden_dim, 16)
 
         if expand_ratio == 1:
@@ -479,7 +460,7 @@ class InvertedResidual(nn.Module):
         iden = x
         mask = None
         for layer in self.conv:
-            if isinstance(layer, CoordAtt) or isinstance(layer, CBAM):
+            if isinstance(layer, CBAM):
                 mask, x = layer(x)
             else:
                 x = layer(x)
@@ -572,6 +553,43 @@ def mb_v2(emb_size=1280, spatial_att=None, pretrained=True, pre_model_path=None)
     return model
 
 
+#---------------------------------------------MobileNet_v3--------------------------------------
+# class MobileNet_v3(nn.Module):
+#     def __init__(self, variant='large', spatial_att=None):
+#         super(MobileNet_v3, self).__init__()
+#         if variant == 'large':
+#             self.model = mobilenet_v3_large(pretrained=True)
+#             self.block_idx = '6'
+#             if spatial_att == 'cbam':
+#                 self.att_mod = CBAM(40, 2, no_channel=True, channel_pool='max_softmax')
+#         elif variant == 'small':
+#             self.model = mobilenet_v3_small(pretrained=True)
+#             self.block_idx = '3'
+#             if spatial_att == 'cbam':
+#                 self.att_mod = CBAM(24, 2, no_channel=True, channel_pool='max_softmax')
+#         else:
+#             raise ValueError
+#         self.spatial_att = spatial_att
+#         self.model.classifier = nn.Identity()
+
+    
+#     def forward(self, x, **kwargs):
+#         offset_lst = []
+#         mask_lst = []
+#         sg_sg2_cam = [None,None,None]; cg_ch_cam = [None,None]; signer_emb = signer_logits = None
+#         for name, layer in self.model.features.named_children():
+#             x = layer(x)
+#             if self.spatial_att == 'cbam' and name == self.block_idx:
+#                 #after the 6th block
+#                 channel_weights, gates, x = self.att_mod(x)
+#                 _, mask = gates
+#                 mask_lst.append(mask)
+#                 offset_lst.append(channel_weights)
+#         x = self.model.avgpool(x)
+
+#         return {'offset_lst': offset_lst, 'mask_lst': mask_lst, 'output': x.flatten(1), 
+#                 'cam': sg_sg2_cam, 'ch_cam': cg_ch_cam, 'signer_emb': signer_emb, 'signer_logits': signer_logits}
+    
 #---------------------------------------------GoogLeNet---------------------------------------
 class GoogLeNet(nn.Module):
     __constants__ = ['aux_logits', 'transform_input']
@@ -582,7 +600,8 @@ class GoogLeNet(nn.Module):
         aux_logits = False,
         transform_input = False,
         init_weights = None,
-        blocks = None
+        blocks = None,
+        spatial_att=None
     ):
         super(GoogLeNet, self).__init__()
         if blocks is None:
@@ -627,10 +646,13 @@ class GoogLeNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.dropout = nn.Dropout(0.2)
         # self.fc = nn.Linear(1024, num_classes)
-        self.down = nn.Linear(1024, 512)
+        # self.down = nn.Linear(1024, 512)
 
         if init_weights:
             self._initialize_weights()
+        self.spatial_att = spatial_att
+        if spatial_att == 'cbam':
+            self.att_mod = CBAM(480, 16, no_channel=True, channel_pool='max_softmax')
 
     def _initialize_weights(self):
         for m in self.modules():
@@ -654,6 +676,10 @@ class GoogLeNet(nn.Module):
         return x
 
     def _forward(self, x):
+        offset_lst = []
+        mask_lst = []
+        sg_sg2_cam = [None,None,None]; cg_ch_cam = [None,None]; signer_emb = signer_logits = None
+
         # N x 3 x 224 x 224
         x = self.conv1(x)
         # N x 64 x 112 x 112
@@ -670,6 +696,11 @@ class GoogLeNet(nn.Module):
         # N x 256 x 28 x 28
         x = self.inception3b(x)
         # N x 480 x 28 x 28
+        if self.spatial_att == 'cbam':
+            channel_weights, gates, x = self.att_mod(x)
+            _, mask = gates
+            mask_lst.append(mask)
+            offset_lst.append(channel_weights)
         x = self.maxpool3(x)
         # N x 480 x 14 x 14
         x = self.inception4a(x)
@@ -705,14 +736,15 @@ class GoogLeNet(nn.Module):
         # N x 1024
         x = self.dropout(x)
         # x = self.fc(x)
-        x = self.down(x)
+        # x = self.down(x)
         # N x 512
-        return x, aux2, aux1
+        return {'offset_lst': offset_lst, 'mask_lst': mask_lst, 'output': x, 
+                'cam': sg_sg2_cam, 'ch_cam': cg_ch_cam, 'signer_emb': signer_emb, 'signer_logits': signer_logits}
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
         x = self._transform_input(x)
-        x, aux1, aux2 = self._forward(x)
-        return x
+        op_dict = self._forward(x)
+        return op_dict
 
 
 class Inception(nn.Module):
@@ -814,8 +846,8 @@ class BasicConv2d(nn.Module):
         x = self.bn(x)
         return F.relu(x, inplace=True)
 
-def googlenet(pretrained=True, pre_model_path=None):
-    model = GoogLeNet()
+def googlenet(pretrained=True, pre_model_path=None, spatial_att=None):
+    model = GoogLeNet(spatial_att=spatial_att)
     if pretrained:
         state_dict = t.load(pre_model_path)
         model.load_state_dict(state_dict, strict=False)

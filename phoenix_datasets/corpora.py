@@ -86,9 +86,15 @@ class PhoenixSICorpus(Corpus):
     def load_data_frame(self, split, aligned_annotation=False):
         """Load corpus."""
         path = self.root / "annotations" / "manual" / f"new_{split}.SI5.corpus.csv"
+        # if split == 'test':
+        #     path = "/2tssd/rzuo/data/phoenix2014-release/phoenix-2014-multisigner/annotations/manual/{}.corpus.csv".format(split)
         df = pd.read_csv(path, sep="|")
         df["annotation"] = df["annotation"].apply(str.split)
-        signer_lst = [1,2,3,4,6,7,8,9,5]  #signer05 only appears in dev and test set.
+        
+        # if split == 'test':
+        #     df = df[df["signer"] != 'Signer05']
+
+        signer_lst = [1,2,3,4,6,7,8,9,5]  #Signer05 only appears in dev and test set.
         df["signer"] = df["signer"].apply(lambda x: signer_lst.index(int(x[-2:])))
 
         if split == "train" and aligned_annotation:
@@ -101,10 +107,13 @@ class PhoenixSICorpus(Corpus):
             df = pd.merge(df, adf, "left", "id")
 
         df["folder"] = df["folder"].apply(lambda s: s.rsplit("/", 1)[0])
+        # df["folder"] = split + "/" + df["folder"].apply(lambda s: s.rsplit("/", 1)[0])
         return df
 
     def get_frames(self, sample, type):
         frames = (self.root / "features" / type / sample["folder"]).glob("*.png")
+        # frames = (Path('../../data/phoenix2014-release/phoenix-2014-multisigner') / "features" / type / sample["folder"]).glob("*.png")
+        
         return sorted(frames)
 
 

@@ -11,13 +11,8 @@ from torch.nn.utils.rnn import pad_sequence
 
 from tfmer.encoders import TransformerEncoder, RecurrentEncoder
 from tfmer.embeddings import Embeddings
-from modules.nets import resnet18_wo_fc, vgg11, cnn9, mb_v2, googlenet
-from modules.vit import deit_small_distilled_patch16_224
-from modules.sgs import create_sgs_applier
+from modules.nets import resnet18_wo_fc, vgg11, cnn9, mb_v2, googlenet#, MobileNet_v3
 from modules.tcn import TCN_block
-# from modules.cnn import CNN, pose_stream
-from modules.dcn import DCN
-from modules.aligner import Aligner
 from utils.utils import gen_random_mask, MaskedMean, gen_neg_sample
 
 class SLRModel(nn.Module):
@@ -97,14 +92,18 @@ class SLRModel(nn.Module):
                                 fde=self.fde, num_signers=kwargs.pop('num_signers', 8))
         elif self.vis_mod_type == 'mb_v2':
             self.vis_mod = mb_v2(emb_size=self.emb_size, spatial_att=spatial_att, pretrained=True, pre_model_path=path_dict['mb_v2_ca'] if spatial_att=='ca' else path_dict['mb_v2'])
+        # elif self.vis_mod_type == 'mb_v3_large':
+        #     self.vis_mod = MobileNet_v3('large', spatial_att=spatial_att)
+        # elif self.vis_mod_type == 'mb_v3_small':
+        #     self.vis_mod = MobileNet_v3('small', spatial_att=spatial_att)
         elif self.vis_mod_type == 'googlenet':
             self.vis_mod = googlenet(pretrained=True, pre_model_path=path_dict['googlenet'])
         elif self.vis_mod_type == 'cnn':
             self.vis_mod = cnn9(True, spatial_att, att_idx_lst, pool_type, cbam_no_channel, cbam_pool)
-        elif self.vis_mod_type == 'dcn':
-            self.vis_mod = DCN(dcn_ver, num_att=5)
-        elif self.vis_mod_type == 'deit_small':
-            self.vis_mod = deit_small_distilled_patch16_224(pretrained=True, pre_model_path=path_dict['deit_small'])
+        # elif self.vis_mod_type == 'dcn':
+        #     self.vis_mod = DCN(dcn_ver, num_att=5)
+        # elif self.vis_mod_type == 'deit_small':
+        #     self.vis_mod = deit_small_distilled_patch16_224(pretrained=True, pre_model_path=path_dict['deit_small'])
         else:
             raise ValueError('We only support resnet18, CNN and DCN now.\n')
         
@@ -325,134 +324,3 @@ class CMA(nn.Module):
         
         return video, len_video, None, None
 
-
-#*******************************SLP**********************************
-class Simple_SLP(nn.Module):
-    #A naive slp model
-    def __init__(self, emb_size=512, voc_size=1233, 
-                 gls_encoder_type='gru', img_encoder_type='cnn', 
-                 pre_vision_model_path=None, use_aligner=True):
-        super(Simple_SLP, self).__init__()
-        self.padding_index = voc_size-2  #unk
-        self.use_aligner = use_aligner
-        self.emb = Embeddings(embedding_dim=emb_size,
-                              num_heads=1,
-                              norm_type='batch',
-                              activation_type='relu',
-                              vocab_size=voc_size,
-                              padding_index=self.padding_index)
-        
-        self.gls_encoder = RecurrentEncoder(rnn_type=gls_encoder_type,
-                                            hidden_size=emb_size,
-                                            emb_size=emb_size,
-                                            num_layers=1,
-                                            dropout=0.1,
-                                            emb_dropout=0.1,
-                                            bidirectional=True)
-        
-        if img_encoder_type == 'cnn':
-            self.img_encoder = cnn9()
-        elif img_encoder_type == 'resnet18':
-            self.img_encoder = resnet18_wo_fc(pretrained=True, pre_model_path=pre_vision_model_path)
-        
-        if use_aligner:
-            self.aligner = Aligner(emb_size=emb_size*2)
-            
-        self.seq_model = RecurrentEncoder(rnn_type=gls_encoder_type,
-                                          hidden_size=emb_size,
-                                          emb_size=emb_size*3,
-                                          num_layers=2,
-                                          dropout=0.1,
-                                          emb_dropout=0.1,
-                                          bidirectional=True)
-        
-        #image decoder(2D-deconv) or we can use video decoder(3D-deconv/2D-deconv + 1D-deconv) in the futu
-        #[B,1024,T] -> [SUM,1024,1,1] -> [SUM,3,224,224]
-        self.decoder = nn.Sequential([
-            nn.ConvTranspose2d(1024, 512, kernel_size=7, bias=False),
-            nn.BatchNorm2d(512),
-            nn.Tanh(),
-            nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(256),
-            nn.Tanh(),
-            nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.Tanh(),
-            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(64),
-            nn.Tanh(),
-            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(32),
-            nn.Tanh(),
-            nn.ConvTranspose2d(32, 3, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
-            nn.BatchNorm2d(3),
-            nn.Tanh()
-        ])
-        
-    
-    def forward(self, gls, len_gls, guide_img, out_seq_len=299):
-        '''
-        Parameters
-        ----------
-        gls : LongTensor
-            [SUM].
-        len_gls : Tensor
-            [B]
-        guide_img : Tensor
-            [B,3,224,224]
-        out_seq_len : int
-            max frame lenght in training dataset
-        Returns
-        -------
-        gls : Tensor
-            generated video, shape [B,max_T,3,224,224]
-        len_gls : LongTensor
-            length of generated video, shape [B]
-        '''
-        gls = gls.split(len_gls.tolist())
-        gls = pad_sequence(gls, batch_first=True, padding_value=self.padding_index).long()  #[B,MAX_T,C]
-        
-        mask = t.zeros(len_gls.shape[0], 1, max(len_gls)).bool().cuda()
-        for i, l in enumerate(len_gls):
-            mask[i, 0, l:] = True
-        
-        #text/gls encoding
-        gls = self.emb(gls, mask)  #[B,C,max_T], C=512
-        B, C, T = gls.shape
-        gls, _ = self.gls_encoder(gls.transpose(1,2), len_gls)  #[B,T,2C]
-        
-        #align
-        if self.use_aligner:
-            T = out_seq_len
-            len_gls, gls = self.aligner(gls, len_gls, out_seq_len=out_seq_len)  #[B,seq,2C]
-            len_gls = t.min(len_gls, t.Tensor([out_seq_len]*B))
-            mask = t.zeros(len_gls.shape[0], 1, out_seq_len).bool().cuda()
-            for i, l in enumerate(len_gls):
-                mask[i, 0, l:] = True
-        
-        #concatenate with guide feature
-        guide_img = self.img_encoder(guide_img)  #[B,C]
-        guide_img = guide_img.expand(T,B,C).transpose(0,1)  #[B,T,C]
-        gls = t.cat([gls, guide_img], dim=-1)  #[B,T,3C]
-        
-        #sequence modeling
-        gls, _ = self.seq_model(gls.transpose(1,2), len_gls)  #[B,seq,2C]
-        
-        #image/video decoding
-        gls = gls.reshape(-1, C*2)  #[SUM,2C]
-        mask = mask.reshape(-1, 1) <= 0
-        gls = t.masked_select(gls, mask).reshape(-1, C*2, 1, 1)  #[real_sum,1024,1,1]
-        gls = self.decoder(gls)  #[real_sum,3,224,224]
-        gls = gls.split(len_gls.tolist())
-        gls = pad_sequence(gls, batch_firs=True)  #[B,max_T,3,224,224]
-        
-        return gls, len_gls
-
-# if __name__ == '__main__':
-    # video = t.rand(15,3,224,224).cuda()
-    # len_video = t.LongTensor([3,5,7]).cuda()
-    # model = SetrModel(pre_vision_model_path='../../pretrained_models/resnet18-5c106cde.pth').cuda()
-    # device = next(model.parameters()).device
-    # print(device)
-    # out = model(video, len_video)
-    # print(out.shape)

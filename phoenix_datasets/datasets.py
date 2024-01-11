@@ -189,14 +189,19 @@ class VideoTextDataset(Dataset):
             else:
                 fname = os.path.join(self.corpus.root, 'heatmaps_7', self.split, video_id+'.npz')
             data = np.load(fname)
-            if self.dset_name != 'csl-daily':
+            if self.dset_name not in ['csl-daily', 'tvb']:
                 heatmaps = data['heatmaps']
             finer_coords = data['finer_coords']
             # coords = torch.from_numpy(coords[indices, ...]).float()
             finer_coords = torch.from_numpy(finer_coords[indices, ...]).float()
             heatmap_mean = self.heatmap_mean[:]
-            if self.heatmap_num == 3:
-                idx = [0,6,1]
+            if self.heatmap_num > 0:
+                if self.heatmap_num == 3:
+                    idx = [0,6,1]
+                elif self.heatmap_num == 2:
+                    idx = [6,1]
+                elif self.heatmap_num == 1:
+                    idx = [0]
                 if self.dset_name != 'csl-daily':
                     heatmaps = heatmaps[:, idx, ...]
                 finer_coords = finer_coords[:, idx, ...]

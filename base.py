@@ -19,14 +19,13 @@ import uuid
 import arpa
 
 from model import SLRModel, CMA
-from modules.dcn import gen_mask_from_pose
+# from modules.dcn import gen_mask_from_pose
 from phoenix_datasets import PhoenixVideoTextDataset, PhoenixTVideoTextDataset, PhoenixSIVideoTextDataset, PhoenixSI7VideoTextDataset, CSLVideoTextDataset, CSLDailyVideoTextDataset, TVBVideoTextDataset
 from utils.metric import get_wer_delsubins
 from utils.utils import update_dict, worker_init_fn, LossManager, ModelManager, freeze_params, unfreeze_params, record_loss
 from utils.figure import gen_att_map
 from evaluation_relaxation.phoenix_eval import get_phoenix_wer
 from ctcdecode import CTCBeamDecoder
-from modules.criterion import SeqKD, SeqJSD, ConfLoss, LabelSmoothCE, FocalLoss
 from modules.fde import SignerClassifier
 # from modules.searcher import CTC_decoder
 
@@ -55,6 +54,11 @@ class TrainingManager(object):
         # if self.args_model['name'] == 'lcsa' or self.args_model['name'] == 'fcn':
         pose_arg = [args.pose]
         pose_arg.extend(args.pose_arg)
+        num_signers = 9
+        if args.data['dataset'] == '2014SI':
+            num_signers = 8
+        elif args.data['dataset'] == 'csl1':
+            num_signers = 40
         self.model = SLRModel(args_model=self.args_model,
                                 args_tf=self.args_tf,
                                 D_std_gamma=args.D_std_gamma,
@@ -75,7 +79,7 @@ class TrainingManager(object):
                                 sema_cons=args.sema_cons,
                                 drop_ratio=args.drop_ratio,
                                 fde=args.fde,
-                                num_signers=8 if '2014SI' in args.data['dataset'] else 9
+                                num_signers=num_signers
                                 )
         # elif self.args_model['name'] == 'CMA':
         # self.model = CMA(gls_voc_size=self.voc_size)
@@ -86,8 +90,6 @@ class TrainingManager(object):
         self.criterion = nn.CTCLoss(self.blank_id, zero_infinity=True).cuda()
         if args.ve:
             self.ve_crit = nn.CTCLoss(self.blank_id, zero_infinity=True).cuda()
-        if args.va:
-            self.va_crit = SeqKD(T=8, blank_id=self.blank_id).cuda()
 
         if args.pose is not None and ('deform' in args.pose or args.pose in ['super_att', 'vit_patch']):
             # self.pose_crit = nn.SmoothL1Loss().cuda()
@@ -100,20 +102,8 @@ class TrainingManager(object):
         
         if args.fde is not None:
             # fde signer classifier loss
-            # ce_w = t.FloatTensor([1475,49,470,836,30,647,704,165]).cuda()
-            # ce_w = ce_w.sum() - ce_w
-            # ce_w /= ce_w.sum()
             self.fde_cls_crit = nn.CrossEntropyLoss().cuda()
-            # self.fde_cls_crit = FocalLoss(gamma=1.0, weight=None).cuda()
-            # self.fde_cls_crit = LabelSmoothCE(lb_smooth=0.1).cuda()
             self.fde_cam_crit = nn.MSELoss().cuda()
-            # self.fde_cam_crit = SeqJSD(T=8, blank_id=self.blank_id).cuda()
-            self.fde_rkl_crit = SeqJSD(T=8, blank_id=self.blank_id).cuda()  #reversed knowledge distillation
-            if 'adv' in args.fde:
-                self.model_D = SignerClassifier(512, 8).cuda()
-                self.optimizer_D = self._create_optimizer(self.model_D)
-                self.lr_scheduler_D = self._create_lr_scheduler(self.optimizer_D)
-                self.fde_conf_crit = ConfLoss().cuda()
         
         ctc_decoder_vocab = [chr(x) for x in range(20000, 20000 + self.voc_size)]
         self.ctc_decoder = CTCBeamDecoder(ctc_decoder_vocab,
@@ -166,10 +156,7 @@ class TrainingManager(object):
                                             gamma=self.args_lr_sch['decrease_factor'])
         elif self.args_lr_sch['name'] == 'mstep':
             return t.optim.lr_scheduler.MultiStepLR(optimizer=optimizer,
-                                                    # milestones=[20,30,40,50,60,65,70,75],
-                                                    # milestones=[20,30,40,45,50,55],
-                                                    # milestones=[15,25,30,35,40,45],  #CVPR22
-                                                    milestones=[15,25,30,35,40,45,50],  #TMM22
+                                                    milestones=[15,25,30,35,40,45,50],
                                                     gamma=self.args_lr_sch['decrease_factor'])
             
             
@@ -179,14 +166,6 @@ class TrainingManager(object):
                 use_random = True
             else:
                 use_random = False
-        
-        # heatmap_shape=[64,64]
-        # if self.args.pose == 'filter':
-        #     #compute heatmap size
-        #     if self.args.pose_arg[0] > 0:
-        #         heatmap_shape = [int(224/2**(self.args.pose_arg[0]-1)), int(224/2**(self.args.pose_arg[0]-1))]
-        #     else:
-        #         heatmap_shape = [224,224]
 
         dset_dict = self.dset_dict[self.args_data['dataset']]
         dset_cls = dset_dict['cls']
@@ -234,11 +213,6 @@ class TrainingManager(object):
             coord = None
             if self.args.pose is not None:
                 coord = t.cat(batch_data['coord']).cuda()
-            # heatmap = [None]
-            # if self.args.pose in ['filter', 'modality']:
-            #     heatmap = []
-            #     for hmap in zip(*batch_data['heatmap']):
-            #         heatmap.append(t.cat(hmap).cuda()) 
             
             self.model.eval()
             op_dict = self.model(video, len_video, coord=coord, return_att=need_att)
@@ -365,7 +339,7 @@ class TrainingManager(object):
                                                # 'gate': t.mean(plot['gate'][0,:len_video.cpu()[0],:]).cpu().numpy() if self.args.comb_conv == 'gate' else None,
                                                'att_1': plot_lst[0].mean(dim=(-2,-1)).cpu() if need_att and self.args_model['seq_mod']=='transformer' and self.args_tf['pe']=='rpe_gau' else None,
                                                'att_2': plot_lst[1].mean(dim=(-2,-1)).cpu() if need_att and self.args_model['seq_mod']=='transformer' and self.args_tf['pe']=='rpe_gau' else None,
-                                               'ratio': (len_video/len_label).cpu(),
+                                               'ratio': (len_video.float()/len_label.float()).cpu(),
                                                'hyp_lst': hyp_lst,
                                                'miscell': None}
     
@@ -411,7 +385,7 @@ class TrainingManager(object):
         gls_prob = gls_prob.permute(1,0,2)
         
         loss = self.criterion(gls_prob, label, len_video, len_label)
-        loss = loss.mean()
+        loss = self.args.ctc_f*loss.mean()
         
         loss_pose = t.tensor(0.0).cuda()
         if self.args.pose in ['deform', 'deform_patch', 'deform_and_mask']:
@@ -478,11 +452,6 @@ class TrainingManager(object):
                 loss_pose_lst.append(self.pose_crit(offset, co))
             loss_pose += min(loss_pose_lst)
             
-        if self.args.pose in ['deform_mask', 'deform_and_mask']:
-            mask = mask_lst[0]
-            mask_label = gen_mask_from_pose(offset_lst[0], heatmap[0]).detach()
-            loss_pose += self.pose_crit(mask, mask_label)
-            
         if self.args.pose == 'super_att' and self.args.fde is None:
             if self.args_model['vis_mod'] == 'mb_v2':
                 idx = 1
@@ -495,25 +464,15 @@ class TrainingManager(object):
             if self.args.att_sup_type == 'first':
                 masks = mask_lst[idx:idx+1]
                 offsets = offset_lst[idx:idx+1]
-                # if self.args.spatial_att == 'cbam':
-                #     masks = mask_lst[idx+1:idx+2]
-                #     offsets = offset_lst[idx+1:idx+2]
             elif self.args.att_sup_type == 'all':
                 masks = mask_lst[idx:]
                 offsets = offset_lst[idx:]
             elif self.args.att_sup_type == 'res':
-                # masks = mask_lst[idx::2]
-                # offsets = offset_lst[idx::2]
-                # if self.args.spatial_att == 'cbam':
                 masks = mask_lst[idx:idx+2]
                 offsets = offset_lst[idx:idx+2]
             
             upsample = False
-            if self.args.spatial_att in ['dcn', 'dcn_nooff']:
-                for mask, offset in zip(masks, offsets):
-                    mask_label = gen_mask_from_pose(offset, heatmap[self.args.heatmap_shape.index(mask.shape[-1])]).detach()
-                    loss_pose += self.pose_crit(mask, mask_label)
-            elif self.args.spatial_att == 'ca':
+            if self.args.spatial_att == 'ca':
                 for mask in masks:
                     mask_label = heatmap[self.args.heatmap_shape.index(mask.shape[-1])]
                     loss_pose += self.pose_crit(mask.mean(dim=1, keepdim=True), mask_label)
@@ -574,14 +533,7 @@ class TrainingManager(object):
                     loss += w_signer * loss_signer
             # CAM guidance loss
             if w_cam > 0:
-                # if 'sim' in self.args.fde:
-                #     if epoch >= 15:
-                #         loss_cam = self.fde_cam_crit(sg, cam.detach())
-                #         loss += -w_cam * loss_cam
-                # else:
                 sg_label = heatmap[0]
-                # if self.args.fde not in ['s_and_c', 'xvec', 'dual_spat', 'dual_spat_xvec', 'dual_spat_xvec_sim', 'adv'] and epoch >= 15:
-                #     sg_label *= (1-cam)
                 loss_cam = self.fde_cam_crit(sg, sg_label.detach())
                 loss += w_cam * loss_cam
             # ch-CAM guidance loss
@@ -615,7 +567,7 @@ class TrainingManager(object):
     def train(self):
         dtrain = self.create_dataloader(split='train', bsize=self.args_model['batch_size'])
         loss_manager = LossManager(print_step=100)
-        self.model_manager = ModelManager(max_num_models=5)  #only save the best 3 models
+        self.model_manager = ModelManager(max_num_models=1)  #only save the best
         
         self.model.cuda()
         max_num_epoch = self.args.max_num_epoch
@@ -648,7 +600,7 @@ class TrainingManager(object):
                 loss_manager.update(loss_dict, global_step)
                 record_loss(loss_dict, epoch_loss)
 
-                if self.args_lr_sch['patience'] == 6 and i == self.len_dtrain//(self.args_model['batch_size']*2) and 'step' not in self.args_lr_sch['name']:  
+                if self.args_lr_sch['patience'] == 6 and self.len_dtrain//(self.args_model['batch_size']*2)==0 and 'step' not in self.args_lr_sch['name']:  
                     #half of the epoch
                     self.validate(epoch, global_step)
             
@@ -671,14 +623,6 @@ class TrainingManager(object):
                     'lr_scheduler_D': self.lr_scheduler_D.state_dict() if self.lr_scheduler_D is not None else None,
                     'epoch':epoch},
                     model_name)
-            
-            # if epoch == 14:
-            #     model_name = os.path.join(self.args.save_dir, 'ep14.pkl')
-            #     t.save({'mainstream': self.model.state_dict(),
-            #             'optimizer': self.optimizer.state_dict(),
-            #             'lr_scheduler': self.lr_scheduler.state_dict(),
-            #             'epoch':epoch},
-            #             model_name)
             
             #for csl1 no dev split only
             if 'step' in self.args_lr_sch['name'] and epoch in [59,64,69,74,79]:
@@ -792,455 +736,3 @@ class TrainingManager(object):
             self.model_manager.update(model_name, phoenix_eval_err, epoch, self.lr_scheduler, self.lr_scheduler_D, self.args_lr_sch['name'])
         
         del dset
-        # with open(self.args.save_dir+'/predictions.pkl', 'wb') as f:
-        #     pickle.dump(self.decoded_dict, f)
-
-
-    def vis_fde(self, model_file):
-        import cv2
-        state_dict = update_dict(t.load(model_file)['mainstream'])
-        self.model.load_state_dict(state_dict, strict=True)
-        self.model.cuda()
-        self.model.eval()  # set NOT self.train in fde.py
-        split = 'test'
-        
-        # ATTENTION: random drop issue
-        if split == 'train':
-            idx_lst = [80, 335, 362, 381, 3474, 3508, 3586, 631]
-            self.args_data['p_drop'] = 0.9
-        else:
-            idx_lst = [0,20,50,60,70,71,72,73,80,90]
-            # idx_lst = [80,90]
-            self.args_data['p_drop'] = 0.5
-        # idx_lst = [335]
-        dset = self.create_dataloader(split=split, bsize=1)
-        save_sg = []
-        for i, batch_data in tqdm(enumerate(dset), desc='[VIS_FDE phase]'):
-            if i > max(idx_lst):
-                break
-            elif i not in idx_lst:
-                continue
-            else:
-                t.cuda.empty_cache()
-                video = t.cat(batch_data['video']).cuda()
-                len_of_video = batch_data['len_video'].cuda()
-                signer = batch_data['signer']
-                for k in range(len(signer)):
-                    signer[k] = t.tensor(signer[k]).expand(len_of_video[k])
-                signer = t.cat(signer, dim=0).cuda()
-                if self.args.pose in ['prior', 'super_att'] and split == 'train':
-                    heatmap = []
-                    for hmap in zip(*batch_data['heatmap']):
-                        heatmap.append(t.cat(hmap).cuda())
-                    heatmap = heatmap[0]
-
-                op_dict = self.model(video, len_of_video, signer=signer)
-                sg, sg2, cam = op_dict['cam']  #[T,1,H,W]
-                save_sg.append(sg.detach().cpu())
-                continue
-                cg, ch_cam = op_dict['ch_cam']  #[T,C,1,1]
-                mask_lst = op_dict['spat_att']
-                # cg = cg.squeeze()
-                # if cam is None:
-                #     cam = t.zeros_like(sg)
-                # if ch_cam is None:
-                #     ch_cam = t.zeros_like(cg)
-                # ch_cam = ch_cam.squeeze()
-                
-                mean = t.tensor([0.5405, 0.5306, 0.5235]).reshape(1,3,1,1).cuda()
-                video += mean
-                video = np.uint8(255*video.cpu().numpy()).transpose(2,3,1,0)
-                T = len_of_video.item()
-                for j in tqdm(range(T)):
-                    spat = sg[j, 0, ...].detach().cpu().numpy()  #[H,W]
-                    if cam is not None:
-                        spat_cam = cam[j, 0, ...].detach().cpu().numpy()  #[H,W]
-                    if sg2 is not None:
-                        spat2 = sg2[j, 0, ...].detach().cpu().numpy()
-                    # chan = cg[j, ...].detach().cpu().numpy()
-                    # chan_cam = ch_cam[j, ...].detach().cpu().numpy()
-                    img = video[..., j]
-                    # plt.figure(i+j)
-
-                    # spatial attention mask
-                    # spat = (spat - spat.min()) / (spat.max() - spat.min() + 1e-8)
-                    # plt.subplot(1,5,1)
-                    s = cv2.applyColorMap(np.uint8(255*spat), cv2.COLORMAP_JET)
-                    s = cv2.resize(s, (224,224))
-                    comb = np.uint8(0.5*img[..., ::-1] + 0.5*s)
-                    # plt.axis('off')
-                    # plt.imshow(comb)
-                    cv2.imwrite(self.args.save_dir+'/vis_fde/'+str(split)+'_'+str(i)+'_'+str(j)+'_comb.jpg', comb)
-
-                    if split == 'train':
-                        hmap = heatmap[j, 0, ...].cpu().numpy()  #[H,W]
-
-                        # dual_spat
-                        # plt.subplot(1,5,2)
-                        # s = cv2.applyColorMap(np.uint8(255*spat2), cv2.COLORMAP_JET)
-                        # s = cv2.resize(s, (224,224))[..., ::-1]
-                        # comb = np.uint8(0.5*img + 0.5*s)
-                        # plt.axis('off')
-                        # plt.imshow(comb)
-
-                        # plt.subplot(1,5,3)
-                        # s = cv2.applyColorMap(np.uint8(255*spat*spat2), cv2.COLORMAP_JET)
-                        # s = cv2.resize(s, (224,224))[..., ::-1]
-                        # comb = np.uint8(0.5*img + 0.5*s)
-                        # plt.axis('off')
-                        # plt.imshow(comb)
-
-                        # cam
-                        # plt.subplot(1,5,2)
-                        # s = cv2.applyColorMap(np.uint8(255*spat_cam), cv2.COLORMAP_JET)
-                        # s = cv2.resize(s, (224,224))[..., ::-1]
-                        # comb = np.uint8(0.5*img + 0.5*s)
-                        # plt.axis('off')
-                        # plt.imshow(comb)
-
-                        # reversed cam
-                        # plt.subplot(1,5,3)
-                        # s = cv2.applyColorMap(np.uint8(255*(1.0-spat_cam)), cv2.COLORMAP_JET)
-                        # s = cv2.resize(s, (224,224))[..., ::-1]
-                        # comb = np.uint8(0.5*img + 0.5*s)
-                        # plt.axis('off')
-                        # plt.imshow(comb)
-                        
-                        # pose heatmap
-                        # plt.subplot(1,5,2)
-                        # s = cv2.applyColorMap(np.uint8(255*hmap), cv2.COLORMAP_JET)
-                        # s = cv2.resize(s, (224,224))[..., ::-1]
-                        # comb = np.uint8(0.5*img + 0.5*s)
-                        # plt.axis('off')
-                        # plt.imshow(comb)
-
-                        # pose modulated reversed cam
-                        # plt.subplot(1,5,5)
-                        # s = cv2.applyColorMap(np.uint8(255*(1.0-spat_cam)*hmap), cv2.COLORMAP_JET)
-                        # s = cv2.resize(s, (224,224))[..., ::-1]
-                        # comb = np.uint8(0.5*img + 0.5*s)
-                        # plt.axis('off')
-                        # plt.imshow(comb)
-                    
-                    # plt.savefig(self.args.save_dir+'/vis_fde/{:s}_{:d}_{:d}.jpg'.format(split, i, j))
-
-                    # plt.figure(i+j+1000)
-                    # x = np.arange(chan.shape[0])
-                    # plt.plot(x, 1.0-chan_cam, color='orange', label='reversed channel cam')
-                    # plt.plot(x, chan, color='b', label='channel gates')
-                    # plt.xlabel("channel index")
-                    # plt.ylabel("magnitude")
-                    # plt.legend()
-                    # plt.savefig(self.args.save_dir+'/vis_fde/{:s}_channel_{:d}_{:d}.jpg'.format(split, i, j))
-        save_sg = t.cat(save_sg, dim=0).numpy()
-        np.savez_compressed(self.args.save_dir+'/sg.npz', save_sg)
-
-
-    def vis_vit(self, model_file):
-        import cv2
-        state_dict = update_dict(t.load(model_file)['mainstream'])
-        self.model.load_state_dict(state_dict, strict=True)
-        self.model.cuda()
-        self.model.eval()
-        dset = self.create_dataloader(split='dev', bsize=1)
-        # ATTENTION: random drop issue
-        for i, batch_data in tqdm(enumerate(dset), desc='[VIS_VIT phase]'):
-            if i==0:
-                video = t.cat(batch_data['video']).cuda()
-                len_of_video = batch_data['len_video'].cuda()
-                coord = None
-                if self.args.pose is not None:
-                    coord = t.cat(batch_data['coord']).cuda()
-                
-                op_dict = self.model(video, len_of_video, coord)
-                attn_scores = t.stack(op_dict['spat_att'], dim=1).mean(dim=2)  # [T,L,N], N=(224//16)*(224//16)+2=14*14+2=196+2
-                mean = t.tensor([0.5372,0.5273,0.5195]).reshape(1,3,1,1).cuda()
-                video += mean
-                video = np.uint8(255*video.cpu().numpy()).transpose(2,3,1,0)
-                T = len_of_video.item()
-                L = attn_scores.shape[1]
-                print('1st:', attn_scores[0,-2,:2], '2nd:', attn_scores[0,-1,:2])
-                # for j in tqdm(range(T)):
-                #     score = attn_scores[j,:,2:].unsqueeze(-1)  #[L,196,1]
-                #     assert score.shape[1] == 196
-                #     score = score.expand(-1,-1,256).reshape(L,14,14,16,16).permute(0,1,3,2,4).reshape(L,224,224)
-                #     score = score.detach().cpu().numpy()
-                #     img = video[..., j]
-                #     plt.figure(j)
-                #     for k in range(L):
-                #         s = score[k, ...]
-                #         if k==0:
-                #             print(s.max(), s.min(), s.sum()/256, np.std(s))
-                #         s = cv2.applyColorMap(np.uint8(255*s), cv2.COLORMAP_JET)[..., ::-1]
-                #         comb = np.uint8(0.5*img + 0.5*s)
-                #         plt.subplot(2, L//2, k+1)
-                #         plt.imshow(comb)
-                #         plt.axis('off')
-                #     plt.savefig(self.args.save_dir+'/vis_vit/0_head0_{:d}.jpg'.format(j))
-            else:
-                break
-
-
-    def vis_attention(self, model_file):
-        def _lin_normalize(hmaps):
-            min = hmaps.min(axis=(-2,-1), keepdims=True)
-            max = hmaps.max(axis=(-2,-1), keepdims=True)
-            hmaps = (hmaps - min) / (max - min + 1e-6)
-            return hmaps
-        
-        import cv2
-        from torchvision.transforms.functional import resize
-        state_dict = update_dict(t.load(model_file)['mainstream'])
-        self.model.load_state_dict(state_dict, strict=True)
-        self.model.cuda()
-        self.model.eval()
-        
-        split = 'test'
-        if split == 'train':
-            idx_lst = [80, 335, 362, 381, 3474, 3508, 3586, 631]
-        else:
-            idx_lst = [0,20,50,60,70,71,72,73,80,90]
-            # idx_lst = [80,90]
-        self.args_data['p_drop'] = 0.5
-        dset = self.create_dataloader(split=split, bsize=1)
-        # idx = 5  # ATTENTION: random drop issue
-        save_sg = []  #spatial gates
-        for i, batch_data in tqdm(enumerate(dset), desc='[VIS_ATT phase]'):
-            if i > max(idx_lst):
-                break
-            elif i not in idx_lst:
-                continue
-            else:
-                t.cuda.empty_cache()
-                video = t.cat(batch_data['video']).cuda()
-                len_of_video = batch_data['len_video'].cuda()
-                heatmap = []
-                for hmap in zip(*batch_data['heatmap']):
-                    heatmap.append(t.cat(hmap).cuda()) 
-                
-                op_dict = self.model(video, len_of_video)
-                offset_lst, mask_lst = op_dict['offset'], op_dict['spat_att']
-
-                # cw = offset_lst[0].squeeze().detach().cpu().numpy()
-                # print(cw.shape)
-                # np.savez(self.args.save_dir+'/cw.npz', cw=cw)
-                # break
-
-                video = video.cpu()
-                if self.args_data['dataset'] == '2014':
-                    mean = t.tensor([0.5372, 0.5273, 0.5195]).reshape(1,3,1,1)
-                elif self.args_data['dataset'] == '2014SI':
-                    mean = t.tensor([0.5405, 0.5306, 0.5235]).reshape(1,3,1,1)
-                video += mean
-                # video = transforms.functional.resize(video, hmaps.shape[-2:])
-                video = np.uint8(255*video.detach().cpu().numpy()).transpose(2,3,1,0)
-                
-                # visualize mask
-                if self.args_model['vis_mod'] == 'mb_v2':
-                    mask_lst = mask_lst[1:]
-                elif self.args_model['vis_mod'] == 'resnet18':
-                    mask_lst = mask_lst[2:]
-                else:
-                    masks = mask_lst[0]
-
-                save_sg.append(masks.detach().cpu());continue
-                assert self.args.spatial_att == 'cbam'
-                for idx in tqdm(range(0, masks.shape[0])):
-                    mask = masks[idx, ...]
-                    mask = mask.squeeze().detach().cpu().numpy()
-                    # mask_label = heatmap[0][idx, 0, ...].detach().cpu().numpy()
-                    # mask = _lin_normalize(mask)
-                    # print(mask.max(), mask_label.max(), mask.min(), mask_label.min())
-
-                    mask = cv2.applyColorMap(np.uint8(255*mask), cv2.COLORMAP_JET)
-                    img = video[..., idx][..., ::-1]
-                    comb = np.uint8(0.5*img + 0.5*cv2.resize(mask, (224,224)))
-                    cv2.imwrite(self.args.save_dir+'/vis_fde/'+str(split)+'_'+str(i)+'_'+str(idx)+'_comb.jpg', comb)
-                    # cv2.imwrite(self.args.save_dir+'/vis/'+str(i)+'_'+str(idx)+'_mask.jpg', mask)
-                
-                    if self.args.cbam_pool in ['softmax', 'max_softmax']:
-                        # distribution of channel weight
-                        c_w = offset_lst[0]
-                        c_w = c_w.squeeze().detach().cpu().numpy()[idx, :]  #[512]
-                        x = np.arange(0, c_w.shape[0])
-                        # plt.figure(4*idx+1)
-                        # ax = plt.subplot(111)
-                        # ax.spines['right'].set_visible(False)
-                        # ax.spines['top'].set_visible(False)
-                        # ax.set_xlabel('channel index')
-                        # ax.set_ylabel('weight')
-                        # ax.scatter(x, c_w, s=10)
-                        # y = (1.0/512)*np.ones(x.shape[0])
-                        # ax.plot(x, y, color='r', ls='--', label='1/512')
-                        # ax.legend()
-                        # plt.savefig(self.args.save_dir+'/vis/'+str(i)+'_'+str(idx)+'_cw.jpg', bbox_inches='tight', pad_inches=0)
-        save_sg = t.cat(save_sg, dim=0).numpy()
-        np.savez_compressed(self.args.save_dir+'/sg.npz', save_sg)
-
-
-    def vis_hmap_flow(self):
-        import cv2
-        from raft.flow_viz import flow_to_image
-
-        def gen_gaussian_hmap(raw_hmap, H, gamma=14):
-            # raw hmap: [T,9,raw_h,raw_w]
-            # H: the output height you want. assume H=W
-            # gamma: hyper-param, control the width of gaussian, larger gamma, SMALLER gaussian
-            T, hmap_num, raw_h, raw_w = raw_hmap.shape
-            assert hmap_num == 9
-
-            # generate 2d coords
-            raw_hmap = t.tensor(raw_hmap).flatten(-2)  #[T,9,HW]
-            coords_1d = t.argmax(raw_hmap, dim=-1, keepdim=True)  #[T,9,1]
-            coords_x =  t.floor_divide(coords_1d, raw_w) / (raw_h-1)
-            coords_y = t.remainder(coords_1d, raw_w) / (raw_w-1)
-            coords = t.cat([coords_x, coords_y], dim=-1)  #[T,9,2]
-
-            # generate gaussian hmap
-            sigma = H/gamma
-            x, y = t.meshgrid(t.arange(H), t.arange(H))
-            grid = t.stack([x,y], dim=2)  #[H,H,2]
-            grid = grid.repeat((T,1,1,1)).permute(1,2,0,3)  #[H,H,T,2]
-            hmap = [t.exp(-((grid-(c.squeeze()*(H-1)))**2).sum(dim=-1) / (2*sigma**2)) for c in coords.chunk(hmap_num, dim=1)]  #[H,H,T]
-            hmap = t.stack(hmap, dim=0).permute(3,0,1,2)  #[T,9,H,H]
-            return hmap
-        
-        split = 'test'
-        self.args_data['aug_type'] = 'random_drop'
-        self.args_data['p_drop'] = 0.0
-        self.args_data['resize_shape'] = [256,256]
-        self.args_data['crop_shape'] = [256,256]
-        dset = self.create_dataloader(split=split, bsize=1)
-        if self.args_data['dataset'] == '2014T':
-            base_dir = '/3tdisk/shared/rzuo/PHOENIX-2014-T/'
-        elif self.args_data['dataset'] == 'csl-daily':
-            base_dir = '/3tdisk/shared/rzuo/CSL-Daily'
-        
-        idx = 10
-        for i, batch_data in tqdm(enumerate(dset), desc='[VIS_HMAP_FLOW phase]'):
-            video = t.cat(batch_data['video'])
-            mean = t.tensor(self.dset_dict[self.args_data['dataset']]['mean']).reshape(1,3,1,1)
-            video += mean
-            id = ''.join(batch_data['id'][0])
-            if self.args_data['dataset'] == '2014T':
-                hmap = np.load(os.path.join(base_dir, 'heatmaps_hrnet_mpii_9', split, id+'.npz'))['heatmaps']
-                flow = np.load(os.path.join(base_dir, 'flow_things', split, id+'.npz'))['flow']
-            elif self.args_data['dataset'] == 'csl-daily':
-                hmap = np.load(os.path.join(base_dir, 'heatmaps_hrnet_mpii_9', id+'.npz'))['heatmaps']
-                flow = np.load(os.path.join(base_dir, 'flow_things', id+'.npz'))['flow']
-            
-            # normalize hmap
-            # min = hmap.min(axis=(-2,-1), keepdims=True)
-            # max = hmap.max(axis=(-2,-1), keepdims=True)
-            # hmap = (hmap - min) / (max - min + 1e-6)
-            gau_hmap = gen_gaussian_hmap(hmap, 256)
-            gau_hmap = gau_hmap.amax(dim=1)[idx, ...]
-            gau_hmap = np.uint8(255*gau_hmap)
-            gau_hmap = cv2.applyColorMap(gau_hmap, cv2.COLORMAP_JET)[..., ::-1]
-
-            img1 = np.uint8(255*video[idx, ...].detach().cpu().numpy()).transpose(1,2,0)
-            img2 = np.uint8(255*video[idx+1, ...].detach().cpu().numpy()).transpose(1,2,0)
-            hmap = np.uint8(255*hmap[idx, ...])
-            # flow = flow[idx, ...]
-
-            # vis hmaps
-            pos = ['thorax', 'upper neck', 'head top', 'r wrist', 'r elbow', 'r shoulder', 'l shoulder', 'l elbow', 'l wrist']
-            # fig, axes = plt.subplots(2,5)
-            # for j in range(10):
-            #     if j==0:
-            #         axes[0][0].imshow(img1)
-            #         axes[0][0].set_title('img')
-            #     else:
-            #         co_hmap = cv2.applyColorMap(hmap[j-1], cv2.COLORMAP_JET)
-            #         co_hmap = cv2.resize(co_hmap, tuple(self.args_data['resize_shape']))[..., ::-1]
-            #         axes[j//5][j%5].imshow(co_hmap)
-            #         axes[j//5][j%5].set_title(pos[j-1])
-            #     axes[j//5][j%5].set_xticks([])
-            #     axes[j//5][j%5].set_yticks([])
-            plt.figure()
-            img_show = np.uint8(0.5*img1 + 0.5*gau_hmap)
-            plt.imshow(img_show)
-            plt.axis("off")
-            plt.savefig('{:s}_{:d}_hmap_inone.jpg'.format(self.args_data['dataset'], i))
-
-            # vis optical flow
-            # fig, axes = plt.subplots(2,5)
-            # for j in range(5):
-            #     img = np.uint8(255*video[idx+j*10, ...].detach().cpu().numpy()).transpose(1,2,0)
-            #     axes[0][j].imshow(img)
-            #     axes[0][j].set_xticks([])
-            #     axes[0][j].set_yticks([])
-            #     flow_img = flow_to_image(flow[idx+j*10,...].transpose(1,2,0))
-            #     axes[1][j].imshow(flow_img)
-            #     axes[1][j].set_xticks([])
-            #     axes[1][j].set_yticks([])
-            # axes[0].imshow(img1)
-            # axes[0].set_title('img1')
-            # axes[0].set_xticks([])
-            # axes[0].set_yticks([])
-
-            # axes[1].imshow(img2)
-            # axes[1].set_title('img2')
-            # axes[1].set_xticks([])
-            # axes[1].set_yticks([])
-
-            # axes[2].imshow(flow_img)
-            # axes[2].set_title('flow')
-            # axes[2].set_xticks([])
-            # axes[2].set_yticks([])
-            # plt.savefig('{:s}_flow.jpg'.format(self.args_data['dataset']))
-
-            if i not in [0,1,2,3,4]:
-                break
-
-
-# def vis_cam(self, model_file):
-    #     import cv2
-    #     from vis.gradcam import CAM
-    #     from vis.image import show_cam_on_image
-    #     state_dict = update_dict(t.load(model_file)['mainstream'])
-    #     self.model.load_state_dict(state_dict, strict=True)
-    #     target_layer = self.model.vis_mod.CNN_stack[-4]
-    #     cam = CAM(model=self.model, target_layer=target_layer, use_cuda=True)
-        
-    #     dset = self.create_dataloader(split='dev', bsize=1)
-    #     for i, batch_data in tqdm(enumerate(dset), desc='[VIS_CAM phase]'):
-    #         video = t.cat(batch_data['video']).cuda()
-    #         len_video = batch_data['len_video'].cuda()
-    #         label = batch_data['label']
-    #         grayscale_cam = cam(video=video, len_video=len_video, 
-    #                             method='gradcam', target_category=label)
-    #         rgb_img = video.cpu().data.numpy().transpose(0,2,3,1)  #[T,H,W,3]
-    #         visualization = show_cam_on_image(rgb_img, grayscale_cam)
-    #         for j in range(video.shape[0]):
-    #             cv2.imwrite(self.args.save_dir+'/cam/'+str(j)+'.jpg', visualization[j])
-    #         if i==0:
-    #             break
-
-# def get_hyp_after_lm(self, pred_seq, beam_scores, out_seq_len):
-    #     '''
-    #     Parameters
-    #     ----------
-    #     pred_seq : tensor [N_BEAMS,N_TIMESTEPS]
-    #         DESCRIPTION.
-    #     beam_scores : tensor [N_BEAMS]
-    #         -log(p). 
-    #     out_seq_len : tensor [N_BEAMS]
-    #         Values after out_seq_len are non-sensical.
-
-    #     Returns
-    #     -------
-    #     hyp after lm
-    #     '''
-    #     assert self.lm is not None
-    #     n_beams = beam_scores.shape[0]
-    #     assert n_beams == self.args.rec_beam_size
-    #     for j in range(n_beams):
-    #         hyp = [x[0] for x in groupby(pred_seq[j][:out_seq_len[j]].tolist())]
-    #         sen = [self.vocab[x] for x in hyp]
-    #         if sen == []:
-    #             continue
-    #         beam_scores[j] -= self.args.lm_weight * self.lm.log_s(sen)
-        
-    #     best_beam = t.argmin(beam_scores)
-    #     return [x[0] for x in groupby(pred_seq[best_beam][:out_seq_len[best_beam]].tolist())]

@@ -83,7 +83,8 @@ def create_dataloader(dset_name='2014', split='train', bsize=1):
                  'csl1': {'cls': CSLVideoTextDataset, 'root': ('../../data/ustc-csl', 'split_1.txt'), 'mean': [0.5827, 0.5742, 0.5768], 'hmap_mean': []},
                  'csl2': {'cls': CSLVideoTextDataset, 'root': ('../../data/ustc-csl', 'split_2.txt'), 'mean': [0.5827, 0.5742, 0.5768], 'hmap_mean': []},
                  'tvb': {'cls': TVBVideoTextDataset, 'root': '../../data/tvb', 'mean': [0.4706, 0.5277, 0.5247], 'hmap_mean': []},
-                 'csl-daily': {'cls': CSLDailyVideoTextDataset, 'root': '../../data/csl-daily', 'mean': [0.6868, 0.6655, 0.6375]}}
+                 'csl-daily': {'cls': CSLDailyVideoTextDataset, 'root': '../../data/csl-daily', 'mean': [0.6868, 0.6655, 0.6375]},
+                 'tvb': {'cls': TVBVideoTextDataset, 'root': '/6tdisk/shared/tvb', 'mean': [0.4878, 0.5392, 0.5371]}}
     
     args_data = {'dataset': dset_name, 'aug_type': 'random_drop', 'max_len': 999, 'p_drop': 0, 'resize_shape': [256,256], 'crop_shape': [256,256]}
 
@@ -137,6 +138,8 @@ def main():
         path = os.path.join('/3tdisk/shared/rzuo/PHOENIX-2014-T', 'heatmaps_hrnet_mpii_9', args.split)
     elif args.dataset == 'csl-daily':
         path = os.path.join('/3tdisk/shared/rzuo/CSL-Daily', 'heatmaps_hrnet_mpii_9')
+    elif args.dataset == 'tvb':
+        path = os.path.join('/3tdisk/shared/rzuo/tvb', 'heatmaps_7')
 
     if not os.path.exists(path):
         os.makedirs(path)
@@ -156,16 +159,16 @@ def main():
             #10 - r wrist, 11 - r elbow, 12 - r shoulder, 
             #13 - l shoulder, 14 - l elbow, 15 - l wrist
             heatmaps = model(video)
-            heatmaps = heatmaps.detach().cpu().numpy()[:, 7:, ...]
+            heatmaps = heatmaps.detach().cpu().numpy()[:, 9:, ...]
             # coords = argmax(heatmaps)
             # heatmaps = lin_normalize(heatmaps)
             # print(coords[0,6,:], coords[0,0,:])
             
             # data = np.load(fname+'.npz')
             # heatmaps, finer_coords = data['heatmaps'], data['finer_coords']
-            # finer_coords = argmax(heatmaps)
+            finer_coords = argmax(heatmaps)
             # print(heatmaps.shape, finer_coords.shape, len_video)
-            assert heatmaps.shape == (len_video,9,64,64) #and finer_coords.shape == (len_video,7,2)
+            assert heatmaps.shape == (len_video,7,64,64) and finer_coords.shape == (len_video,7,2)
             # channel_mean += heatmaps.sum(axis=(0,2,3))/(64*64)
             # total_len += len_video
             # vis(heatmaps)
@@ -175,7 +178,12 @@ def main():
             #     dirs = os.path.join('/', *fname.split('/')[:-1])
             #     if not os.path.exists(dirs):
             #         os.makedirs(dirs)
-            np.savez_compressed(fname+'.npz', heatmaps=heatmaps)
+
+            if args.dataset == 'tvb':
+                d = '/'.join(fname.split('/')[:-1])
+                if not os.path.exists(d):
+                    os.makedirs(d)
+            np.savez_compressed(fname+'.npz', finer_coords=finer_coords)
             
             # visualize
             # coords = finer_coords[:, (0,6,1), :]
@@ -212,19 +220,19 @@ def argmax(heatmap):
     # finer 
     coords_lst = []
     for i in range(C):
-        if i==1:
-            # right wrist
-            mask = np.zeros([H,W]).astype(bool)
-            mask[H//4:, :W//2] = True
-            real_w = W//2
-        elif i==6:
-            # left wrist
-            mask = np.zeros([H,W]).astype(bool)
-            mask[H//4:, W//2:] = True
-            real_w = W-W//2
-        else:
-            mask = np.ones([H,W]).astype(bool)
-            real_w = W
+        # if i==1:
+        #     # right wrist
+        #     mask = np.zeros([H,W]).astype(bool)
+        #     mask[H//4:, :W//2] = True
+        #     real_w = W//2
+        # elif i==6:
+        #     # left wrist
+        #     mask = np.zeros([H,W]).astype(bool)
+        #     mask[H//4:, W//2:] = True
+        #     real_w = W-W//2
+        # else:
+        mask = np.ones([H,W]).astype(bool)
+        real_w = W
         
         hmap = heatmap[:, i, ...]  #[T,H,W]
         hmap = hmap.transpose(1,2,0)
@@ -232,15 +240,15 @@ def argmax(heatmap):
         coords = sel_hmap.argmax(axis=0) #[T]
         coords = np.stack([coords, np.zeros(T)], axis=1)  #[T,2]
         
-        if i==1:
-            coords[:, 1] = (coords[:, 0] % real_w) / (W-1)
-            coords[:, 0] = (coords[:, 0] // real_w + H//4) / (H-1)
-        elif i==6:
-            coords[:, 1] = (coords[:, 0] % real_w + W//2) / (W-1)
-            coords[:, 0] = (coords[:, 0] // real_w + H//4) / (H-1)
-        else:
-            coords[:, 1] = (coords[:, 0] % real_w) / (W-1)
-            coords[:, 0] = (coords[:, 0] // real_w) / (H-1)
+        # if i==1:
+        #     coords[:, 1] = (coords[:, 0] % real_w) / (W-1)
+        #     coords[:, 0] = (coords[:, 0] // real_w + H//4) / (H-1)
+        # elif i==6:
+        #     coords[:, 1] = (coords[:, 0] % real_w + W//2) / (W-1)
+        #     coords[:, 0] = (coords[:, 0] // real_w + H//4) / (H-1)
+        # else:
+        coords[:, 1] = (coords[:, 0] % real_w) / (W-1)
+        coords[:, 0] = (coords[:, 0] // real_w) / (H-1)
             
         coords_lst.append(coords)
     coords = np.stack(coords_lst, axis=1)  #[T,C,2]

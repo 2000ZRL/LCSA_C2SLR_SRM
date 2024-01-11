@@ -22,6 +22,7 @@ def parse_args():
     # p.add_argument('--batch_size', type=int, default=2)
     # p.add_argument('--vis_mod', type=str, default='vgg11', choices=['resnet18', 'vgg11', 'mb_v2', 'googlenet', 'cnn', 'dcn'])
     # p.add_argument('--seq_mod', type=str, default='transformer', choices=['tcn', 'transformer', 'gru', 'lstm', 'tcntr'])
+    p.add_argument('--ctc_f', type=float, default=1.0, help='ctc loss factor')
     p.add_argument('--va', type=int, default=0, choices=[0,1], help='vac')
     p.add_argument('--ve', type=int, default=0, choices=[0,1], help='vac')
     p.add_argument('--alpha', type=float, default=25.0, help='factor of va loss')
@@ -56,8 +57,8 @@ def parse_args():
     
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--gpu', type=int, default=1)
-    p.add_argument('--setting', type=str, default='full', choices=['full', 'semi_ptf_50', 'semi_10', 'semi_20', 'semi_50', 'semi_100'])
-    p.add_argument('--mode', type=str, default='train', choices=['train', 'test', 'vis_cam', 'vis_att', 'vis_vit', 'vis_fde', 'vis_hmap_flow'])
+    p.add_argument('--setting', type=str, default='full', choices=['full'])
+    p.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
     p.add_argument('--test_split', type=str, default='test', choices=['test', 'dev', 'train'])  #maybe we want to test on training set
     
     #SLP
@@ -65,20 +66,16 @@ def parse_args():
     # p.add_argument('--sample_dir', type=str, default='./samples')
     
     #pose
-    p.add_argument('--pose', type=str, default=None, choices=[None, 'filter', 'modality', 'super_att', \
-                                                              'deform', 'deform_all', 'deform_mask', 'deform_patch', 'deform_and_mask', \
-                                                                'vit_patch', 'prior'])
+    p.add_argument('--pose', type=str, default=None, choices=[None, 'super_att'])
     p.add_argument('--pose_arg', nargs='+', type=float, default=[3,0.5], help='for heatmap filter: before which pooling layer, filter how many channels')
     p.add_argument('--pose_dim', type=int, default=0, help='for pose multi-modality')
-    p.add_argument('--heatmap_num', type=int, default=3, choices=[7,3])
+    p.add_argument('--heatmap_num', type=int, default=3, choices=[7,3,2,1])
     p.add_argument('--heatmap_shape', type=int, nargs='+', default=[28], help='height of needed heatmap')
     p.add_argument('--heatmap_type', type=str, default='gaussian', choices=['origin', 'gaussian', 'norm'], help='origin means HRNet outputs')
     p.add_argument('--pose_f', type=float, default=1.0, help='pose factor of pose guided DCN')
 
     # feature disentange for SI
-    p.add_argument('--fde', type=str, default=None, choices=[None, 's_and_c', 's_and_c_rev', 'distill', 'xvec', 'xvec_sim', 'xvec_sim_bank', \
-                                                            'distill_share', 'similarity', 'dual_spat', 'dual_spat_xvec_sim',\
-                                                            'dual_spat_xvec', 'adv', 'xvec_rev'])
+    p.add_argument('--fde', type=str, default=None, choices=[None, 's_and_c', 's_and_c_rev', 'distill', 'xvec', 'xvec_sim'])
     p.add_argument('--fde_loss_w', nargs='+', type=float, default=[0.0, 0.0, 0.0, 0.0], help='loss weights of fde')
     return p
 
@@ -97,7 +94,6 @@ if __name__ == '__main__':
     setup_seed(args.seed)
     
     from base import TrainingManager
-    from semi import TrainingManagerSemi
     
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
@@ -141,8 +137,6 @@ if __name__ == '__main__':
     
     if args.setting == 'full':
         training_manager = TrainingManager(args, vocab)
-    elif 'semi' in args.setting:
-        training_manager = TrainingManagerSemi(args, vocab)
     
     if args.mode == 'train':
         num_param = get_param_count(training_manager.model)
@@ -151,44 +145,16 @@ if __name__ == '__main__':
             training_manager.train_ptf()
         else:
             training_manager.train()
-
-        # training_manager.validate(0, 0, 'dev')  #for measure inference speed
         
         training_manager.args.mode = 'test'
         for fname in os.listdir(args.save_dir):
-            if 'pkl' in fname and 'ep' in fname:
+            if 'pkl' in fname:
                 model_file = os.path.join(args.save_dir, fname)
                 training_manager.validate(args.max_num_epoch, 0, 'test', model_file)
     
     elif args.mode == 'test':
         for fname in os.listdir(args.save_dir):
-            if 'pkl' in fname and 'ep' in fname:
+            if 'pkl' in fname:
                 model_file = os.path.join(args.save_dir, fname)
                 training_manager.validate(args.max_num_epoch, 0, args.test_split, model_file)
     
-    # elif args.mode == 'vis_cam':
-    #     for fname in os.listdir(args.save_dir):
-    #         if 'pkl' in fname and 'ep' in fname:
-    #             model_file = os.path.join(args.save_dir, fname)
-    #             training_manager.vis_cam(model_file)
-    
-    elif args.mode == 'vis_att':
-        for fname in os.listdir(args.save_dir):
-            if 'pkl' in fname and 'ep' in fname:
-                model_file = os.path.join(args.save_dir, fname)
-                training_manager.vis_attention(model_file)
-                
-    elif args.mode == 'vis_vit':
-        for fname in os.listdir(args.save_dir):
-            if 'pkl' in fname and 'ep' in fname:
-                model_file = os.path.join(args.save_dir, fname)
-                training_manager.vis_vit(model_file)
-
-    elif args.mode == 'vis_fde':
-        for fname in os.listdir(args.save_dir):
-            if 'pkl' in fname and 'ep' in fname:
-                model_file = os.path.join(args.save_dir, fname)
-                training_manager.vis_fde(model_file)
-    
-    elif args.mode == 'vis_hmap_flow':
-        training_manager.vis_hmap_flow()
