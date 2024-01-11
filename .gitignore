@@ -2,6 +2,7 @@ results/
 vis_res/
 badcase/
 pretrained_models/
+__pycache__/
 
 evaluation_relaxation/__pycache__/__init__.cpython-38.pyc
 evaluation_relaxation/__pycache__/phoenix_eval.cpython-38.pyc

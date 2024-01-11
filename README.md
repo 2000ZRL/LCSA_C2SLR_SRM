@@ -18,8 +18,8 @@ An improved Transformer for temporal modeling in CSLR models. We propose to enha
 ### Performance
 | Dataset | WER (Dev/Test) | Ckpt&Cfg | 
 | :--- | :---: | :---: | 
-| Phoenix-2014 | 21.4/21.9 | [link]() |
-| CSL | --/1.4 | [link]() |
+| Phoenix-2014 | 21.4/21.9 | [link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/rzuo_connect_ust_hk/EgmoUv0SC9tDjhBirUlJibQBoGhtK6XgCkt4CwvZIRlWEg?e=sLQHos) |
+| CSL | --/1.4 | [link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/rzuo_connect_ust_hk/EgrqtodYfktAq272nop61lsB5-TJiyBvttKviZIRnSM5Fw?e=xARs4Q) |
 
 
 ## Consistency-Enhanced CSLR (C2SLR)
@@ -31,11 +31,11 @@ Two consistency constraints to boost CSLR model performance. We first leverage p
 ### Performance
 | Dataset | WER (Dev/Test) | Ckpt&Cfg | 
 | :--- | :---: | :---: | 
-| Phoenix-2014 | 20.5/20.4 | [link]() |
-| Phoenix-2014T | 20.2/20.4 | [link]() |
-| Phoenix-2014-SI | 34.3/34.4 | [link]() |
-| CSL | --/0.9 | [link]() |
-| CSL-Daily | 31.9/31.0 | [link]() |
+| Phoenix-2014 | 20.5/20.4 | [link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/rzuo_connect_ust_hk/Epf69HvQCa5PilLpMYJi0EwBVaAXqR08xVfhLRQDd5J8Hg?e=tO2Hzr) |
+| Phoenix-2014T | 20.2/20.4 | [link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/rzuo_connect_ust_hk/EgcTPXObS5pGu8oFNCs2oEcB_aHqoN6lhLgg500AQ8QJpg?e=HQDveu) |
+| Phoenix-2014-SI | 34.3/34.4 | [link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/rzuo_connect_ust_hk/EtYK6Hy87XVOnaEmsr93vAgBBpgjkrhVEd-Up7SlqO9AZg?e=bzo3ML) |
+| CSL | --/0.9 | [link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/rzuo_connect_ust_hk/Eiup_UHLKkBBgmUj16oEoJQBcZfv9L3ggyl2V_Lo49PQUg?e=Y6fQ4P) |
+| CSL-Daily | 31.9/31.0 | [link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/rzuo_connect_ust_hk/En46gbpyvp1LvywVUFttZk8BObZzIdaAKr8scy2anO23hw?e=va7Jjz) |
 
 
 ## Signer Removal Module for Signer-Indepedent CSLR (SRM)
@@ -47,8 +47,8 @@ Existing CSLR works mostly focus on the signer-dependent setting, in which testi
 ### Performance on Signer-Independent Datasets
 | Dataset | WER (Dev/Test) | Ckpt&Cfg | 
 | :--- | :---: | :---: | 
-| Phoenix-2014-SI | 33.1/32.7 | [link]() |
-| CSL | --/0.68 | [link]() |
+| Phoenix-2014-SI | 33.1/32.7 | [link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/rzuo_connect_ust_hk/Eph_N4l0Oo1JpYsG436eidIBW4aqR30ki-5c5YmN1pJ2Zw?e=NSqsmM) |
+| CSL | --/0.68 | [link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/rzuo_connect_ust_hk/Eol329uN3OdFj2z90sN6xYoBneprSqEB9tqdgCEyjlAH2g?e=U65jvT) |
 
 
 ## Usage
@@ -73,7 +73,7 @@ The general process is (1) first run **gen_heatmaps.py** to get **finer_coords**
 
 
 ### Pretrained Models
-There are two pretrained models: (1) VGG11 pretrained on ImageNet and (2) HRNet pretrained on MPII. Here is the [link](http://home.ustc.edu.cn/~zhouh156/dataset/csl-daily/).
+There are two pretrained models: (1) VGG11 pretrained on ImageNet and (2) HRNet pretrained on MPII. Here is the [link](https://hkustconnect-my.sharepoint.com/:f:/g/personal/rzuo_connect_ust_hk/EljpR-arKvJEnf5OZ4Afy9QB8nfZsLPclg_vLcA644sing?e=ZebZHA).
 
 
 ### Training and Testing
