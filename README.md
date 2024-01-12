@@ -6,7 +6,7 @@ This repo contains the official implementations of the following papers on (sign
 
 - [CVPR 2022] C2SLR: Consistency-enhanced Continuous Sign Language Recognition. [[Paper]](https://openaccess.thecvf.com/content/CVPR2022/papers/Zuo_C2SLR_Consistency-Enhanced_Continuous_Sign_Language_Recognition_CVPR_2022_paper.pdf)
 
-- [TOMM 2024] Improving Continuous Sign Language Recognition with Consistency Constraints and Signer Removal. [[Paper]]([https://arxiv.org/pdf/2212.13023.pdf](https://arxiv.org/pdf/2212.13023v2.pdf))
+- [TOMM 2024] Improving Continuous Sign Language Recognition with Consistency Constraints and Signer Removal. [[Paper]](https://arxiv.org/pdf/2212.13023v2.pdf)
 
 
 ## Local Context-Aware Self-Attention (LCSA)
