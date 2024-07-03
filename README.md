@@ -103,10 +103,13 @@ Please cite our works if you find this repo is helpful.
   pages={5131--5140},
   year={2022}
 }
-@article{zuo2022improving,
-  title={Improving Continuous Sign Language Recognition with Consistency Constraints and Signer Removal},
+@article{zuo2024improving,
+  title={Improving continuous sign language recognition with consistency constraints and signer removal},
   author={Zuo, Ronglai and Mak, Brian},
-  journal={arXiv preprint arXiv:2212.13023},
-  year={2022}
+  journal={ACM Transactions on Multimedia Computing, Communications and Applications},
+  volume={20},
+  number={6},
+  pages={1--25},
+  year={2024},
 }
 ```
