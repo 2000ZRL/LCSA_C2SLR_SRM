@@ -2,7 +2,7 @@
 
 This repo contains the official implementations of the following papers on (signer-independent) continuous sign language recognition (CSLR).
 
-- [Interspeech 2022] Local Context-aware Self-attention for Continuous Sign Language Recognition. [[Paper]](https://www.isca-speech.org/archive/pdfs/interspeech_2022/zuo22_interspeech.pdf) 
+- [Interspeech 2022] Local Context-aware Self-attention for Continuous Sign Language Recognition. [[Paper]](https://www.isca-archive.org/interspeech_2022/zuo22_interspeech.pdf) 
 
 - [CVPR 2022] C2SLR: Consistency-enhanced Continuous Sign Language Recognition. [[Paper]](https://openaccess.thecvf.com/content/CVPR2022/papers/Zuo_C2SLR_Consistency-Enhanced_Continuous_Sign_Language_Recognition_CVPR_2022_paper.pdf)
 
